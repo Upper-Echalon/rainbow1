@@ -1,7 +1,7 @@
 import { TransactionRequest } from '@ethersproject/abstract-provider';
 import { arrayify } from '@ethersproject/bytes';
 import { HDNode } from '@ethersproject/hdnode';
-import { Provider } from '@ethersproject/providers';
+import { Provider, StaticJsonRpcProvider } from '@ethersproject/providers';
 import { Transaction } from '@ethersproject/transactions';
 import { Wallet } from '@ethersproject/wallet';
 import { signTypedData, SignTypedDataVersion, TypedMessage } from '@metamask/eth-sig-util';
@@ -30,14 +30,7 @@ import { findWalletWithAccount } from '@/helpers/findWalletWithAccount';
 import { EthereumAddress } from '@/entities';
 import { authenticateWithPIN, authenticateWithPINAndCreateIfNeeded } from '@/handlers/authentication';
 import { saveAccountEmptyState } from '@/handlers/localstorage/accountLocal';
-import {
-  addHexPrefix,
-  isHexString,
-  isHexStringIgnorePrefix,
-  isValidBluetoothDeviceId,
-  isValidMnemonic,
-  web3Provider,
-} from '@/handlers/web3';
+import { addHexPrefix, isHexString, isHexStringIgnorePrefix, isValidBluetoothDeviceId, isValidMnemonic } from '@/handlers/web3';
 import { createSignature } from '@/helpers/signingWallet';
 import showWalletErrorAlert from '@/helpers/support';
 import walletTypes, { EthereumWalletType } from '@/helpers/walletTypes';
@@ -57,7 +50,7 @@ import { setHardwareTXError } from '@/navigation/HardwareWalletTxNavigator';
 import { Signer } from '@ethersproject/abstract-signer';
 import { sanitizeTypedData } from '@/utils/signingUtils';
 import { ExecuteFnParamsWithoutFn, performanceTracking, Screen } from '@/state/performance/performance';
-import { Network } from '@/networks/types';
+import { Network } from '@/state/backendNetworks/types';
 
 export type EthereumPrivateKey = string;
 type EthereumMnemonic = string;
@@ -73,7 +66,7 @@ interface WalletInitialized {
 interface TransactionRequestParam {
   transaction: TransactionRequest;
   existingWallet?: Signer;
-  provider?: Provider;
+  provider: StaticJsonRpcProvider;
 }
 
 interface MessageTypeProperty {
@@ -122,6 +115,7 @@ export interface RainbowAccount {
   avatar: null | string;
   color: number;
   visible: boolean;
+  ens?: string;
   image?: string | null;
 }
 
@@ -266,7 +260,7 @@ export const loadWallet = async <S extends Screen>({
 }: {
   address?: EthereumAddress;
   showErrorIfNotLoaded?: boolean;
-  provider?: Provider;
+  provider: Provider;
   timeTracking?: ExecuteFnParamsWithoutFn<S>;
 }): Promise<null | Wallet | LedgerSigner> => {
   const addressToUse = address || (await loadAddress());
@@ -289,17 +283,20 @@ export const loadWallet = async <S extends Screen>({
     privateKey = await loadPrivateKey(addressToUse, isHardwareWallet);
   }
 
-  if (privateKey === -1 || privateKey === -2) {
+  // kc.ErrorType.UserCanceled means the user cancelled, so we don't wanna do anything
+  // kc.ErrorType.NotAuthenticated means the user is not authenticated (maybe removed biometrics).
+  //    In this case we show an alert inside loadPrivateKey
+  if (privateKey === kc.ErrorType.UserCanceled || privateKey === kc.ErrorType.NotAuthenticated) {
     return null;
   }
   if (isHardwareWalletKey(privateKey)) {
     const index = privateKey?.split('/')[1];
     const deviceId = privateKey?.split('/')[0];
-    if (typeof index !== undefined && provider && deviceId) {
+    if (typeof index !== undefined && deviceId) {
       return new LedgerSigner(provider, getHdPath({ type: WalletLibraryType.ledger, index: Number(index) }), deviceId);
     }
   } else if (privateKey) {
-    return new Wallet(privateKey, provider || web3Provider);
+    return new Wallet(privateKey, provider);
   }
   if (ios && showErrorIfNotLoaded) {
     showWalletErrorAlert();
@@ -403,8 +400,8 @@ export const signTransaction = async ({
 
 export const signPersonalMessage = async (
   message: string | Uint8Array,
-  existingWallet?: Signer,
-  provider?: Provider
+  provider: Provider,
+  existingWallet?: Signer
 ): Promise<null | {
   result?: string;
   error?: any;
@@ -451,8 +448,8 @@ export const signPersonalMessage = async (
 
 export const signTypedDataMessage = async (
   message: string | TypedData,
-  existingWallet?: Signer,
-  provider?: Provider
+  provider: Provider,
+  existingWallet?: Signer
 ): Promise<null | {
   result?: string;
   error?: any;
@@ -536,7 +533,10 @@ export const oldLoadSeedPhrase = async (): Promise<null | EthereumWalletSeed> =>
 
 export const loadAddress = (): Promise<null | EthereumAddress> => keychain.loadString(addressKey) as Promise<string | null>;
 
-export const loadPrivateKey = async (address: EthereumAddress, hardware: boolean): Promise<null | EthereumPrivateKey | -1 | -2> => {
+export const loadPrivateKey = async (
+  address: EthereumAddress,
+  hardware: boolean
+): Promise<null | EthereumPrivateKey | kc.ErrorType.UserCanceled | kc.ErrorType.NotAuthenticated> => {
   try {
     const isSeedPhraseMigrated = await keychain.loadString(oldSeedPhraseMigratedKey);
 
@@ -550,8 +550,8 @@ export const loadPrivateKey = async (address: EthereumAddress, hardware: boolean
 
     if (!privateKey) {
       const privateKeyData = await getKeyForWallet(address, hardware);
-      if (privateKeyData === -1) {
-        return -1;
+      if (privateKeyData === kc.ErrorType.UserCanceled || privateKeyData === kc.ErrorType.NotAuthenticated) {
+        return privateKeyData;
       }
       privateKey = privateKeyData?.privateKey ?? null;
     }
@@ -911,9 +911,12 @@ export const saveKeyForWallet = async (
  * @desc Gets wallet keys for the given address depending wallet type
  * @param address The wallet address.
  * @param hardware If the wallet is a hardware wallet.
- * @return null | PrivateKeyData | -1
+ * @return null | PrivateKeyData | kc.ErrorType.UserCanceled | kc.ErrorType.NotAuthenticated
  */
-export const getKeyForWallet = async (address: EthereumAddress, hardware: boolean): Promise<null | PrivateKeyData | -1> => {
+export const getKeyForWallet = async (
+  address: EthereumAddress,
+  hardware: boolean
+): Promise<null | PrivateKeyData | kc.ErrorType.UserCanceled | kc.ErrorType.NotAuthenticated> => {
   if (hardware) {
     return await getHardwareKey(address);
   } else {
@@ -971,9 +974,11 @@ export const saveHardwareKey = async (
 /**
  * @desc Gets wallet private key for a given address.
  * @param address The wallet address.
- * @return null | PrivateKeyData | -1
+ * @return null | PrivateKeyData | kc.ErrorType.UserCanceled | kc.ErrorType.NotAuthenticated
  */
-export const getPrivateKey = async (address: EthereumAddress): Promise<null | PrivateKeyData | -1> => {
+export const getPrivateKey = async (
+  address: EthereumAddress
+): Promise<null | PrivateKeyData | kc.ErrorType.UserCanceled | kc.ErrorType.NotAuthenticated> => {
   try {
     const key = `${address}_${privateKeyKey}`;
     const options = { authenticationPrompt };
@@ -984,11 +989,35 @@ export const getPrivateKey = async (address: EthereumAddress): Promise<null | Pr
       androidEncryptionPin,
     });
 
-    if (error === -2) {
-      Alert.alert(lang.t('wallet.authenticate.alert.error'), lang.t('wallet.authenticate.alert.current_authentication_not_secure_enough'));
-      return null;
+    switch (error) {
+      case kc.ErrorType.UserCanceled:
+        // User Cancelled - We want to bubble up this error code. No need to track it.
+        return kc.ErrorType.UserCanceled;
+      case kc.ErrorType.NotAuthenticated:
+        // Alert the user and bubble up the error code.
+        Alert.alert(
+          lang.t('wallet.authenticate.alert.error'),
+          lang.t('wallet.authenticate.alert.current_authentication_not_secure_enough')
+        );
+        return kc.ErrorType.NotAuthenticated;
+      case kc.ErrorType.Unavailable: {
+        // Retry with checksummed address if needed
+        // (This is to mimic the behavior of other wallets like CB)
+        const checksumAddress = toChecksumAddress(address);
+        if (address !== checksumAddress) {
+          return getPrivateKey(checksumAddress);
+        }
+        // This means we couldn't find any matches for this key.
+        logger.error(new RainbowError('KC unavailable for PKEY lookup'), { error });
+        break;
+      }
+      default:
+        // This is an unknown error
+        if (error) {
+          logger.error(new RainbowError('KC unknown error for PKEY lookup'), { error });
+        }
+        break;
     }
-
     return pkey || null;
   } catch (error) {
     logger.error(new RainbowError('[wallet]: Error in getPrivateKey'), { error });
@@ -1043,7 +1072,7 @@ export const getSeedPhrase = async (
       androidEncryptionPin,
     });
 
-    if (error === -2) {
+    if (error === kc.ErrorType.NotAuthenticated) {
       Alert.alert(lang.t('wallet.authenticate.alert.error'), lang.t('wallet.authenticate.alert.current_authentication_not_secure_enough'));
       return null;
     }

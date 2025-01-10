@@ -1,9 +1,7 @@
 import { Signer } from '@ethersproject/abstract-signer';
-import { captureException } from '@sentry/react-native';
-import { IS_TESTING } from 'react-native-dotenv';
 import { ENSActionParameters, ENSRap, ENSRapActionType, RapENSAction, RapENSActionParameters } from '@/raps/common';
 import { analytics } from '@/analytics';
-import { ENSRegistrationRecords, NewTransaction, TransactionGasParamAmounts } from '@/entities';
+import { ENSRegistrationRecords, NewTransaction, TransactionGasParamAmounts, TransactionStatus } from '@/entities';
 import { estimateENSTransactionGasLimit, formatRecordsForTransaction } from '@/handlers/ens';
 import { toHex } from '@/handlers/web3';
 import { ENSRegistrationTransactionType, getENSExecutionDetails, REGISTRATION_MODES } from '@/helpers/ens';
@@ -13,7 +11,7 @@ import store from '@/redux/store';
 import { logger, RainbowError } from '@/logger';
 import { parseGasParamAmounts } from '@/parsers';
 import { addNewTransaction } from '@/state/pendingTransactions';
-import { ChainId, Network } from '@/networks/types';
+import { ChainId, Network } from '@/state/backendNetworks/types';
 import {
   createRegisterENSRap,
   createRenewENSRap,
@@ -24,6 +22,7 @@ import {
 } from '../registerENS';
 import { Logger } from '@ethersproject/logger';
 import { performanceTracking, Screens, TimeToSignOperation } from '@/state/performance/performance';
+import { IS_TEST } from '@/env';
 
 export interface ENSRapActionResponse {
   baseNonce?: number | null;
@@ -328,7 +327,7 @@ const ensAction = async (
     // (MULTICALL || SET_TEXT) it's going to fail if we put the account address
     // since the account doesn't have the ENS yet
     const notUseOwnerAddress =
-      IS_TESTING !== 'true' &&
+      !IS_TEST &&
       mode === REGISTRATION_MODES.CREATE &&
       (type === ENSRegistrationTransactionType.MULTICALL || type === ENSRegistrationTransactionType.SET_TEXT);
 
@@ -462,7 +461,7 @@ const ensAction = async (
 
   logger.debug(`[raps/ens]: [${actionName}] response`, { data: tx });
 
-  const newTransaction: NewTransaction = {
+  const newTransaction = {
     chainId: ChainId.mainnet,
     data: tx.data,
     ensCommitRegistrationName: type === ENSRegistrationTransactionType.COMMIT ? name : undefined,
@@ -480,8 +479,8 @@ const ensAction = async (
     to: tx?.to,
     value: toHex(tx.value),
     network: Network.mainnet,
-    status: 'pending',
-  };
+    status: TransactionStatus.pending,
+  } satisfies NewTransaction;
 
   logger.debug(`[raps/ens]: [${actionName}] adding new txn`, { data: newTransaction });
 

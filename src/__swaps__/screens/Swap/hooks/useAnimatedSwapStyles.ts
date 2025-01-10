@@ -23,7 +23,6 @@ import { safeAreaInsetValues } from '@/utils';
 import { getSoftMenuBarHeight } from 'react-native-extra-dimensions-android';
 import { DerivedValue, SharedValue, interpolate, useAnimatedStyle, useDerivedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { NavigationSteps } from './useSwapNavigation';
-import { ChainId } from '@/networks/types';
 import { SPRING_CONFIGS, TIMING_CONFIGS } from '@/components/animations/animationConfigs';
 
 const INSET_BOTTOM = IS_ANDROID ? getSoftMenuBarHeight() - 24 : safeAreaInsetValues.bottom + 16;
@@ -161,7 +160,7 @@ export function useAnimatedSwapStyles({
   });
 
   const outputAssetColor = useDerivedValue(() => {
-    return getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.highContrastColor, isDarkMode, true);
+    return getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.highContrastColor, isDarkMode);
   });
 
   const swapActionWrapperStyle = useAnimatedStyle(() => {
@@ -169,15 +168,11 @@ export function useAnimatedSwapStyles({
     const isSettingsOpen = configProgress.value === NavigationSteps.SHOW_SETTINGS;
     const isBottomSheetOpen = isReviewing || isSettingsOpen || configProgress.value === NavigationSteps.SHOW_GAS;
 
-    const shouldHideFlashbotsRow = (internalSelectedInputAsset.value?.chainId ?? ChainId.mainnet) !== ChainId.mainnet;
-
     let heightForCurrentSheet = HEIGHT_FOR_PANEL[configProgress.value];
-    if (isReviewing && shouldHideFlashbotsRow) {
-      // Remove height when the Flashbots row in the review sheet is hidden
+    if (isReviewing) {
       heightForCurrentSheet -= REVIEW_SHEET_ROW_HEIGHT + REVIEW_SHEET_ROW_GAP;
     } else if (degenMode.value && isSettingsOpen && swapInfo.value.areBothAssetsSet) {
       heightForCurrentSheet += REVIEW_SHEET_ROW_HEIGHT + SETTINGS_SHEET_ROW_GAP * 2 + THICK_BORDER_WIDTH;
-      if (!shouldHideFlashbotsRow) heightForCurrentSheet += REVIEW_SHEET_ROW_HEIGHT + SETTINGS_SHEET_ROW_GAP;
     }
 
     return {
@@ -202,25 +197,13 @@ export function useAnimatedSwapStyles({
 
   const assetToSellIconStyle = useAnimatedStyle(() => {
     return {
-      backgroundColor: getColorValueForThemeWorklet(internalSelectedInputAsset.value?.color, isDarkMode, true),
+      backgroundColor: getColorValueForThemeWorklet(internalSelectedInputAsset.value?.color, isDarkMode),
     };
   });
 
   const assetToBuyIconStyle = useAnimatedStyle(() => {
     return {
-      backgroundColor: getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.color, isDarkMode, true),
-    };
-  });
-
-  const assetToSellCaretStyle = useAnimatedStyle(() => {
-    return {
-      backgroundColor: getColorValueForThemeWorklet(internalSelectedInputAsset.value?.highContrastColor, isDarkMode, true),
-    };
-  });
-
-  const assetToBuyCaretStyle = useAnimatedStyle(() => {
-    return {
-      backgroundColor: getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.highContrastColor, isDarkMode, true),
+      backgroundColor: getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.color, isDarkMode),
     };
   });
 
@@ -233,7 +216,7 @@ export function useAnimatedSwapStyles({
 
   const searchInputAssetButtonStyle = useAnimatedStyle(() => {
     return {
-      color: getColorValueForThemeWorklet(internalSelectedInputAsset.value?.highContrastColor, isDarkMode, true),
+      color: getColorValueForThemeWorklet(internalSelectedInputAsset.value?.highContrastColor, isDarkMode),
     };
   });
 
@@ -245,7 +228,7 @@ export function useAnimatedSwapStyles({
     const color = isPasteMode.value ? foregroundColors.blue : internalSelectedOutputAsset.value?.highContrastColor;
 
     return {
-      color: getColorValueForThemeWorklet(color, isDarkMode, true),
+      color: getColorValueForThemeWorklet(color, isDarkMode),
     };
   });
 
@@ -269,11 +252,11 @@ export function useAnimatedSwapStyles({
   const searchInputAssetButtonWrapperStyle = useAnimatedStyle(() => {
     return {
       backgroundColor: opacityWorklet(
-        getColorValueForThemeWorklet(internalSelectedInputAsset.value?.highContrastColor, isDarkMode, true),
+        getColorValueForThemeWorklet(internalSelectedInputAsset.value?.highContrastColor, isDarkMode),
         isDarkMode ? 0.1 : 0.08
       ),
       borderColor: opacityWorklet(
-        getColorValueForThemeWorklet(internalSelectedInputAsset.value?.highContrastColor, isDarkMode, true),
+        getColorValueForThemeWorklet(internalSelectedInputAsset.value?.highContrastColor, isDarkMode),
         isDarkMode ? 0.06 : 0.01
       ),
     };
@@ -288,9 +271,9 @@ export function useAnimatedSwapStyles({
     return {
       backgroundColor: isPasteMode.value
         ? 'transparent'
-        : opacityWorklet(getColorValueForThemeWorklet(color, isDarkMode, true), isDarkMode ? 0.1 : 0.08),
+        : opacityWorklet(getColorValueForThemeWorklet(color, isDarkMode), isDarkMode ? 0.1 : 0.08),
       borderColor: opacityWorklet(
-        getColorValueForThemeWorklet(color, isDarkMode, true),
+        getColorValueForThemeWorklet(color, isDarkMode),
         isDarkMode ? darkModeBorderOpacity : lightModeBorderOpacity
       ),
     };
@@ -309,9 +292,7 @@ export function useAnimatedSwapStyles({
     outputTokenListStyle,
     swapActionWrapperStyle,
     assetToSellIconStyle,
-    assetToSellCaretStyle,
     assetToBuyIconStyle,
-    assetToBuyCaretStyle,
     hideWhileReviewingOrConfiguringGas,
     flipButtonFetchingStyle,
     searchInputAssetButtonStyle,

@@ -6,7 +6,7 @@ import { logger } from '@/logger';
 import { WrappedAlert as Alert } from '@/helpers/alert';
 import * as lang from '@/languages';
 import { BigNumberish } from '@ethersproject/bignumber';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 const showAlert = () => {
   Alert.alert(
@@ -17,7 +17,11 @@ const showAlert = () => {
   );
 };
 
-export const navigateToMintCollection = async (contractAddress: EthereumAddress, pricePerMint: BigNumberish, chainId: ChainId) => {
+export const navigateToMintCollection = async (
+  contractAddress: EthereumAddress,
+  pricePerMint: BigNumberish | undefined,
+  chainId: ChainId
+) => {
   logger.debug('[mints]: Navigating to Mint Collection', {
     contractAddress,
     chainId,

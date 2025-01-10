@@ -3,12 +3,12 @@ import { useRoute } from '@react-navigation/native';
 import { toChecksumAddress } from 'ethereumjs-util';
 import lang from 'i18n-js';
 import * as i18n from '@/languages';
-import { capitalize, isEmpty } from 'lodash';
+import { isEmpty } from 'lodash';
 import React, { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ContactRowInfoButton from '../components/ContactRowInfoButton';
-import Divider from '../components/Divider';
+import Divider from '@/components/Divider';
 import L2Disclaimer from '../components/L2Disclaimer';
 import Pill from '../components/Pill';
 import TouchableBackdrop from '../components/TouchableBackdrop';
@@ -36,7 +36,7 @@ import {
   formatRecordsForTransaction,
 } from '@/handlers/ens';
 import svgToPngIfNeeded from '@/handlers/svgs';
-import { estimateGasLimit } from '@/handlers/web3';
+import { estimateGasLimit, getProvider } from '@/handlers/web3';
 import { removeFirstEmojiFromString, returnStringFirstEmoji } from '@/helpers/emojiHandler';
 import { add, convertAmountToNativeDisplay } from '@/helpers/utilities';
 import { isENSAddressFormat, isValidDomainFormat } from '@/helpers/validators';
@@ -55,13 +55,14 @@ import Routes from '@/navigation/routesNames';
 import styled from '@/styled-thing';
 import { position } from '@/styles';
 import { useTheme } from '@/theme';
-import { ethereumUtils, getUniqueTokenType, promiseUtils } from '@/utils';
+import { getUniqueTokenType, promiseUtils } from '@/utils';
 import { logger, RainbowError } from '@/logger';
-import { IS_ANDROID } from '@/env';
+import { IS_ANDROID, IS_IOS } from '@/env';
 import { useConsolidatedTransactions } from '@/resources/transactions/consolidatedTransactions';
 import RainbowCoinIcon from '@/components/coin-icon/RainbowCoinIcon';
 import { performanceTracking, TimeToSignOperation, Screens } from '@/state/performance/performance';
-import { ChainId, chainIdToNameMapping } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const Container = styled(Centered).attrs({
   direction: 'column',
@@ -132,7 +133,7 @@ export function getDefaultCheckboxes({
       checked: false,
       id: 'has-wallet-that-supports',
       label: lang.t('wallet.transaction.checkboxes.has_a_wallet_that_supports', {
-        networkName: capitalize(chainIdToNameMapping[chainId]),
+        networkName: useBackendNetworksStore.getState().getChainsLabel()[chainId],
       }),
     },
   ];
@@ -253,6 +254,7 @@ export const SendConfirmationSheet = () => {
   const [checkboxes, setCheckboxes] = useState<Checkbox[]>(getDefaultCheckboxes({ ensProfile, isENS, chainId, toAddress }));
 
   useEffect(() => {
+    const provider = getProvider({ chainId });
     if (isENS) {
       const promises = [
         estimateGasLimit(
@@ -262,7 +264,8 @@ export const SendConfirmationSheet = () => {
             asset: asset,
             recipient: toAddress,
           },
-          true
+          true,
+          provider
         ),
       ];
       const sendENSOptions = Object.fromEntries(checkboxes.map(option => [option.id, option.checked])) as {
@@ -351,9 +354,10 @@ export const SendConfirmationSheet = () => {
 
   const handleL2DisclaimerPress = useCallback(() => {
     navigate(Routes.EXPLAIN_SHEET, {
-      type: asset.network,
+      type: 'network',
+      chainId,
     });
-  }, [asset.network, navigate]);
+  }, [chainId, navigate]);
 
   const nativeDisplayAmount = useMemo(
     () => convertAmountToNativeDisplay(amountDetails.nativeAmount, nativeCurrency),
@@ -419,7 +423,7 @@ export const SendConfirmationSheet = () => {
     return existingAcct;
   }, [toAddress, userAccounts, watchedAccounts]);
 
-  let avatarName = removeFirstEmojiFromString(existingAccount?.label || contact?.nickname);
+  let avatarName = removeFirstEmojiFromString(contact?.nickname || existingAccount?.label);
 
   if (!avatarName) {
     if (isValidDomainFormat(to)) {
@@ -466,8 +470,7 @@ export const SendConfirmationSheet = () => {
 
   return (
     <Container deviceHeight={deviceHeight} height={contentHeight} insets={insets}>
-      {/* @ts-expect-error JavaScript component */}
-      {ios && <TouchableBackdrop onPress={goBack} />}
+      {IS_IOS && <TouchableBackdrop onPress={goBack} />}
 
       <SlackSheet additionalTopPadding={IS_ANDROID} contentHeight={contentHeight} scrollEnabled={false}>
         <SheetTitle>{lang.t('wallet.transaction.sending_title')}</SheetTitle>
@@ -582,7 +585,6 @@ export const SendConfirmationSheet = () => {
                 )}
               </Column>
             </Row>
-            {/* @ts-expect-error JavaScript component */}
             <Divider color={theme.colors.rowDividerExtraLight} inset={[0]} />
           </Column>
           {(isL2 || isENS || shouldShowChecks) && (
@@ -600,7 +602,7 @@ export const SendConfirmationSheet = () => {
                       onPress={handleL2DisclaimerPress}
                       prominent
                       customText={i18n.t(i18n.l.expanded_state.asset.l2_disclaimer_send, {
-                        network: chainIdToNameMapping[asset.chainId],
+                        network: useBackendNetworksStore.getState().getChainsLabel()[asset.chainId],
                       })}
                       symbol={asset.symbol}
                     />
@@ -668,18 +670,7 @@ export const SendConfirmationSheet = () => {
               testID="send-confirmation-button"
             />
           </SendButtonWrapper>
-          {isENS && (
-            <GasSpeedButton
-              asset={undefined}
-              fallbackColor={undefined}
-              testID={undefined}
-              showGasOptions={undefined}
-              validateGasParams={undefined}
-              crossChainServiceTime={undefined}
-              chainId={chainId}
-              theme={theme.isDarkMode ? 'dark' : 'light'}
-            />
-          )}
+          {isENS && <GasSpeedButton chainId={chainId} theme={theme.isDarkMode ? 'dark' : 'light'} />}
         </Column>
       </SlackSheet>
     </Container>

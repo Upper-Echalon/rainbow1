@@ -1,4 +1,4 @@
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 import { useAppSessionsStore } from '.';
 
 const UNISWAP_HOST = 'uniswap.org';

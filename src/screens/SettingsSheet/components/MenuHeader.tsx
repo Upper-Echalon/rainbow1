@@ -64,7 +64,7 @@ const Selection = ({ children }: SelectionProps) => (
   </Text>
 );
 
-type StatusType = 'not-enabled' | 'out-of-date' | 'up-to-date';
+export type StatusType = 'not-enabled' | 'out-of-date' | 'up-to-date' | 'out-of-sync';
 
 interface StatusIconProps {
   status: StatusType;
@@ -87,6 +87,10 @@ const StatusIcon = ({ status, text }: StatusIconProps) => {
       backgroundColor: isDarkMode ? colors.alpha(colors.blueGreyDark, 0.1) : colors.alpha(colors.blueGreyDark, 0.1),
       color: isDarkMode ? colors.alpha(colors.blueGreyDark, 0.6) : colors.alpha(colors.blueGreyDark, 0.8),
     },
+    'out-of-sync': {
+      backgroundColor: colors.alpha(colors.yellow, 0.2),
+      color: colors.yellow,
+    },
     'out-of-date': {
       backgroundColor: colors.alpha(colors.brightRed, 0.2),
       color: colors.brightRed,
@@ -104,7 +108,7 @@ const StatusIcon = ({ status, text }: StatusIconProps) => {
       marginTop={{ custom: 8 }}
       marginBottom={{ custom: 16 }}
     >
-      <Text color={{ custom: statusColors[status].color } || 'label (Deprecated)'} size="14px / 19px (Deprecated)" weight="bold">
+      <Text color={{ custom: statusColors[status].color }} size="14px / 19px (Deprecated)" weight="bold">
         {text}
       </Text>
     </Box>

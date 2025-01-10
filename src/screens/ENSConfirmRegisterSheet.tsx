@@ -30,7 +30,6 @@ import {
   useENSRegistrationForm,
   useENSRegistrationStepHandler,
   useENSSearch,
-  useWallets,
 } from '@/hooks';
 import { ImgixImage } from '@/components/images';
 import { useNavigation } from '@/navigation';
@@ -40,7 +39,7 @@ import { usePersistentDominantColorFromImage } from '@/hooks/usePersistentDomina
 import { handleReviewPromptAction } from '@/utils/reviewAlert';
 import { ReviewPromptAction } from '@/storage/schema';
 import { ActionTypes } from '@/hooks/useENSRegistrationActionHandler';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 export const ENSConfirmRegisterSheetHeight = 600;
 export const ENSConfirmRenewSheetHeight = 560;
@@ -66,7 +65,6 @@ function TransactionActionRow({
   return (
     <>
       <Box>
-        {/* @ts-expect-error JavaScript component */}
         <SheetActionButtonRow paddingBottom={5}>
           {/* @ts-expect-error JavaScript component */}
           <HoldToAuthorizeButton
@@ -82,7 +80,6 @@ function TransactionActionRow({
         </SheetActionButtonRow>
       </Box>
       <Box alignItems="center" justifyContent="center">
-        {/* @ts-expect-error JavaScript component */}
         <GasSpeedButton
           asset={{ color: accentColor }}
           chainId={ChainId.mainnet}

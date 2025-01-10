@@ -1,35 +1,31 @@
 import '@/languages';
 import * as Sentry from '@sentry/react-native';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, memo } from 'react';
 import { AppRegistry, Dimensions, LogBox, StyleSheet, View } from 'react-native';
+import { Toaster } from 'sonner-native';
 import { MobileWalletProtocolProvider } from '@coinbase/mobile-wallet-protocol-host';
 import { DeeplinkHandler } from '@/components/DeeplinkHandler';
-import { AppStateChangeHandler } from '@/components/AppStateChangeHandler';
 import { useApplicationSetup } from '@/hooks/useApplicationSetup';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
-import { connect, Provider as ReduxProvider } from 'react-redux';
+import { connect, Provider as ReduxProvider, shallowEqual } from 'react-redux';
 import { RecoilRoot } from 'recoil';
-import PortalConsumer from '@/components/PortalConsumer';
 import ErrorBoundary from '@/components/error-boundary/ErrorBoundary';
 import { OfflineToast } from '@/components/toasts';
 import { designSystemPlaygroundEnabled, reactNativeDisableYellowBox, showNetworkRequests, showNetworkResponses } from '@/config/debug';
 import monitorNetwork from '@/debugging/network';
 import { Playground } from '@/design-system/playground/Playground';
 import RainbowContextWrapper from '@/helpers/RainbowContext';
-import * as keychain from '@/model/keychain';
 import { Navigation } from '@/navigation';
 import { PersistQueryClientProvider, persistOptions, queryClient } from '@/react-query';
 import store, { AppDispatch, type AppState } from '@/redux/store';
 import { MainThemeProvider } from '@/theme/ThemeContext';
-import { addressKey } from '@/utils/keychainConstants';
 import { SharedValuesProvider } from '@/helpers/SharedValuesContext';
 import { InitialRouteContext } from '@/navigation/initialRoute';
-import { Portal } from '@/react-native-cool-modals/Portal';
 import { NotificationsHandler } from '@/notifications/NotificationsHandler';
 import { analyticsV2 } from '@/analytics';
-import { getOrCreateDeviceId, securelyHashWalletAddress } from '@/analytics/utils';
+import { getOrCreateDeviceId } from '@/analytics/utils';
 import { logger, RainbowError } from '@/logger';
 import * as ls from '@/storage';
 import { migrate } from '@/migrations';
@@ -38,10 +34,13 @@ import { ReviewPromptAction } from '@/storage/schema';
 import { initializeRemoteConfig } from '@/model/remoteConfig';
 import { NavigationContainerRef } from '@react-navigation/native';
 import { RootStackParamList } from '@/navigation/types';
-import { Address } from 'viem';
-import { IS_DEV } from '@/env';
+import { IS_ANDROID, IS_DEV } from '@/env';
 import { prefetchDefaultFavorites } from '@/resources/favorites';
 import Routes from '@/navigation/Routes';
+import { BackupsSync } from '@/state/sync/BackupsSync';
+import { BackendNetworks } from '@/components/BackendNetworks';
+import { AbsolutePortalRoot } from './components/AbsolutePortal';
+import { getAndroidBottomInset } from './utils/deviceUtils';
 
 if (IS_DEV) {
   reactNativeDisableYellowBox && LogBox.ignoreAllLogs();
@@ -50,9 +49,15 @@ if (IS_DEV) {
 
 enableScreens();
 
+const ANDROID_BOTTOM_INSET = IS_ANDROID ? getAndroidBottomInset() : 0;
+
 const sx = StyleSheet.create({
+  androidNavigationBarPadding: {
+    paddingBottom: ANDROID_BOTTOM_INSET,
+  },
   container: {
     flex: 1,
+    overflow: 'hidden',
   },
 });
 
@@ -62,32 +67,44 @@ interface AppProps {
 
 function App({ walletReady }: AppProps) {
   const { initialRoute } = useApplicationSetup();
-
   const handleNavigatorRef = useCallback((ref: NavigationContainerRef<RootStackParamList>) => {
     Navigation.setTopLevelNavigator(ref);
   }, []);
 
   return (
-    <Portal>
-      <View style={sx.container}>
+    <>
+      <View style={[sx.container, IS_ANDROID ? sx.androidNavigationBarPadding : {}]}>
         {initialRoute && (
           <InitialRouteContext.Provider value={initialRoute}>
             <Routes ref={handleNavigatorRef} />
-            <PortalConsumer />
           </InitialRouteContext.Provider>
         )}
         <OfflineToast />
+        <Toaster />
       </View>
       <NotificationsHandler walletReady={walletReady} />
       <DeeplinkHandler initialRoute={initialRoute} walletReady={walletReady} />
-      <AppStateChangeHandler walletReady={walletReady} />
-    </Portal>
+      <BackupsSync />
+      <BackendNetworks />
+      <AbsolutePortalRoot />
+    </>
   );
 }
 
-const AppWithRedux = connect<AppProps, AppDispatch, AppProps, AppState>(state => ({
-  walletReady: state.appState.walletReady,
-}))(App);
+const AppWithRedux = connect<AppProps, AppDispatch, AppProps, AppState>(
+  state => ({
+    walletReady: state.appState.walletReady,
+  }),
+  null,
+  null,
+  {
+    areStatesEqual: (next, prev) => {
+      // Only update if walletReady actually changed
+      return next.appState.walletReady === prev.appState.walletReady;
+    },
+    areOwnPropsEqual: shallowEqual,
+  }
+)(memo(App));
 
 function Root() {
   const [initializing, setInitializing] = useState(true);
@@ -99,27 +116,11 @@ function Root() {
 
       const isReturningUser = ls.device.get(['isReturningUser']);
       const [deviceId, deviceIdWasJustCreated] = await getOrCreateDeviceId();
-      const currentWalletAddress = await keychain.loadString(addressKey);
-      const currentWalletAddressHash =
-        typeof currentWalletAddress === 'string' ? securelyHashWalletAddress(currentWalletAddress as Address) : undefined;
 
-      Sentry.setUser({
-        id: deviceId,
-        currentWalletAddress: currentWalletAddressHash,
-      });
-
-      /**
-       * Add helpful values to `analyticsV2` instance
-       */
+      // Initial telemetry; amended with wallet context later in `useInitializeWallet`
+      Sentry.setUser({ id: deviceId });
       analyticsV2.setDeviceId(deviceId);
-      if (currentWalletAddressHash) {
-        analyticsV2.setCurrentWalletAddressHash(currentWalletAddressHash);
-      }
-
-      /**
-       * `analyticsv2` has all it needs to function.
-       */
-      analyticsV2.identify({});
+      analyticsV2.identify();
 
       const isReviewInitialized = ls.review.get(['initialized']);
       if (!isReviewInitialized) {
@@ -199,9 +200,9 @@ function Root() {
           }}
         >
           <MobileWalletProtocolProvider secureStorage={ls.mwp} sessionExpiryDays={7}>
-            <SafeAreaProvider>
+            <SafeAreaProvider initialMetrics={initialWindowMetrics}>
               <MainThemeProvider>
-                <GestureHandlerRootView style={{ flex: 1 }}>
+                <GestureHandlerRootView style={sx.container}>
                   <RainbowContextWrapper>
                     <SharedValuesProvider>
                       <ErrorBoundary>

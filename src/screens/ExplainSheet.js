@@ -1,6 +1,6 @@
 /* eslint-disable react/jsx-props-no-spreading */
 import { useRoute } from '@react-navigation/native';
-import lang from 'i18n-js';
+import * as lang from '@/languages';
 import React, { useCallback, useMemo } from 'react';
 import { Linking, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,10 +20,10 @@ import { cloudPlatformAccountName } from '@/utils/platform';
 import { useTheme } from '@/theme';
 import { isL2Chain } from '@/handlers/web3';
 import { IS_ANDROID } from '@/env';
-import * as i18n from '@/languages';
 import { EthCoinIcon } from '@/components/coin-icon/EthCoinIcon';
 import RainbowCoinIcon from '@/components/coin-icon/RainbowCoinIcon';
-import { ChainId, chainIdToNameMapping } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const { GAS_TRENDS } = gasUtils;
 export const ExplainSheetHeight = android ? 454 : 434;
@@ -75,10 +75,40 @@ const SENDING_FUNDS_TO_CONTRACT = lang.t('explain.sending_to_contract.text');
 
 const FLOOR_PRICE_EXPLAINER = lang.t('explain.floor_price.text');
 
+const networkExplainer = ({ emoji = '⛽️', chainId, ...props }) => {
+  const chainName = useBackendNetworksStore.getState().getChainsLabel()[chainId];
+
+  let title = lang.t(`explain.default_network_explainer.title`, { chainName });
+  let text = lang.t(`explain.default_network_explainer.text`, { chainName });
+
+  try {
+    title = lang.t(`explain.${chainName.toLowerCase()}.title`);
+    text = lang.t(`explain.${chainName.toLowerCase()}.text`);
+  } catch (e) {
+    // do nothing
+  }
+
+  return {
+    emoji,
+    title,
+    text,
+    logo: <ChainBadge chainId={chainId} marginBottom={8} position="relative" size="large" />,
+    extraHeight: IS_ANDROID ? 120 : 144,
+    readMoreLink: buildRainbowLearnUrl({
+      url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
+      query: {
+        campaign: 'explain',
+      },
+    }),
+    ...props,
+  };
+};
+
 const gasExplainer = network => lang.t('explain.gas.text', { networkName: network });
 
 const availableNetworksExplainer = (tokenSymbol, chainIds) => {
-  const readableNetworks = chainIds?.map(chainId => chainIdToNameMapping[chainId])?.join(', ');
+  const chainsLabel = useBackendNetworksStore.getState().getChainsLabel();
+  const readableNetworks = chainIds?.map(chainId => chainsLabel[chainId])?.join(', ');
 
   return lang.t('explain.available_networks.text', {
     tokenSymbol: tokenSymbol,
@@ -103,24 +133,6 @@ const MAX_BASE_FEE_EXPLAINER = lang.t('explain.max_base_fee.text');
 const MINER_TIP_EXPLAINER = lang.t('explain.miner_tip.text');
 
 const VERIFIED_EXPLAINER = lang.t('explain.verified.text');
-
-const OPTIMISM_EXPLAINER = lang.t('explain.optimism.text');
-
-const ARBITRUM_EXPLAINER = lang.t('explain.arbitrum.text');
-
-const POLYGON_EXPLAINER = lang.t('explain.polygon.text');
-
-const BSC_EXPLAINER = lang.t('explain.bsc.text');
-
-const BASE_EXPLAINER = lang.t('explain.base.text');
-
-const AVALANCHE_EXPLAINER = lang.t('explain.avalanche.text');
-
-const DEGEN_EXPLAINER = lang.t('explain.degen.text');
-
-const BLAST_EXPLAINER = lang.t('explain.blast.text');
-
-const ZORA_EXPLAINER = lang.t('explain.zora.text');
 
 const SWAP_RESET_EXPLAINER = `Rainbow doesn’t have the ability to swap across networks yet, but we’re on it. For now, Rainbow will match networks between selected tokens.`;
 
@@ -158,15 +170,19 @@ const ENS_CONFIGURATION_EXPLAINER =
 export const explainers = (params, theme) => {
   const colors = theme?.colors;
   const chainId = params?.chainId;
-  const network = ethereumUtils.getNetworkFromChainId(chainId);
-  const networkName = chainIdToNameMapping[chainId];
   const fromChainId = params?.fromChainId;
   const toChainId = params?.toChainId;
+  const isDarkMode = theme?.isDarkMode;
+
+  const color = useBackendNetworksStore.getState().getColorsForChainId(chainId, isDarkMode);
+
+  const chainsLabel = useBackendNetworksStore.getState().getChainsLabel();
+
   return {
     op_rewards_airdrop_timing: {
       emoji: '📦',
-      title: i18n.t(i18n.l.rewards.op.airdrop_timing.title),
-      text: i18n.t(i18n.l.rewards.op.airdrop_timing.text),
+      title: lang.t(lang.l.rewards.op.airdrop_timing.title),
+      text: lang.t(lang.l.rewards.op.airdrop_timing.text),
       extraHeight: IS_ANDROID ? -65 : 10,
       readMoreLink: buildRainbowLearnUrl({
         url: 'https://learn.rainbow.me/OP-rewards-with-Rainbow',
@@ -177,34 +193,34 @@ export const explainers = (params, theme) => {
     },
     op_rewards_amount_distributed: {
       emoji: '💰',
-      title: i18n.t(i18n.l.rewards.op.amount_distributed.title),
-      text: i18n.t(i18n.l.rewards.op.amount_distributed.text),
+      title: lang.t(lang.l.rewards.op.amount_distributed.title),
+      text: lang.t(lang.l.rewards.op.amount_distributed.text),
       extraHeight: IS_ANDROID ? -110 : -65,
     },
     op_rewards_bridge: {
       emoji: '🌉',
-      title: i18n.t(i18n.l.rewards.op.bridge.title, {
+      title: lang.t(lang.l.rewards.op.bridge.title, {
         percent: params?.percent || 0,
       }),
-      text: i18n.t(i18n.l.rewards.op.bridge.text, {
+      text: lang.t(lang.l.rewards.op.bridge.text, {
         percent: params?.percent || 0,
       }),
       extraHeight: IS_ANDROID ? -65 : 10,
     },
     op_rewards_swap: {
       emoji: '🔀',
-      title: i18n.t(i18n.l.rewards.op.swap.title, {
+      title: lang.t(lang.l.rewards.op.swap.title, {
         percent: params?.percent || 0,
       }),
-      text: i18n.t(i18n.l.rewards.op.swap.text, {
+      text: lang.t(lang.l.rewards.op.swap.text, {
         percent: params?.percent || 0,
       }),
       extraHeight: IS_ANDROID ? -65 : 10,
     },
     op_rewards_position: {
       emoji: '🏆',
-      title: i18n.t(i18n.l.rewards.op.position.title),
-      text: i18n.t(i18n.l.rewards.op.position.text),
+      title: lang.t(lang.l.rewards.op.position.title),
+      text: lang.t(lang.l.rewards.op.position.text),
       extraHeight: IS_ANDROID ? -110 : -65,
     },
     output_disabled: {
@@ -212,7 +228,7 @@ export const explainers = (params, theme) => {
       title: params?.inputToken
         ? lang.t(`explain.output_disabled.${params?.isCrosschainSwap ? 'title_crosschain' : 'title'}`, {
             inputToken: params?.inputToken,
-            fromNetwork: chainIdToNameMapping[fromChainId],
+            fromNetwork: chainsLabel[fromChainId],
           })
         : lang.t('explain.output_disabled.title_empty'),
 
@@ -220,11 +236,11 @@ export const explainers = (params, theme) => {
         ? lang.t(`explain.output_disabled.${params?.isBridgeSwap ? 'text_bridge' : 'text_crosschain'}`, {
             inputToken: params?.inputToken,
             outputToken: params?.outputToken,
-            fromNetwork: chainIdToNameMapping[fromChainId],
-            toNetwork: chainIdToNameMapping[toChainId],
+            fromNetwork: chainsLabel[fromChainId],
+            toNetwork: chainsLabel[toChainId],
           })
         : lang.t('explain.output_disabled.text', {
-            fromNetwork: chainIdToNameMapping[fromChainId]?.name,
+            fromNetwork: chainsLabel[fromChainId],
             inputToken: params?.inputToken,
             outputToken: params?.outputToken,
           }),
@@ -252,9 +268,9 @@ export const explainers = (params, theme) => {
         />
       ),
       extraHeight: 2,
-      text: gasExplainer(chainIdToNameMapping[chainId]),
+      text: gasExplainer(chainsLabel[chainId]),
       title: lang.t('explain.gas.title', {
-        networkName: chainIdToNameMapping[chainId],
+        networkName: chainsLabel[chainId],
       }),
     },
     ens_primary_name: {
@@ -367,7 +383,7 @@ export const explainers = (params, theme) => {
           {lang.t('explain.unverified.fragment1')}
           <Text
             color={colors?.appleBlue}
-            onPress={() => ethereumUtils.openTokenEtherscanURL(params?.asset.address, params?.asset?.network)}
+            onPress={() => ethereumUtils.openTokenEtherscanURL({ address: params?.asset?.address, chainId: params?.asset?.chainId })}
             size="large"
             suppressHighlighting
             weight="semibold"
@@ -377,123 +393,6 @@ export const explainers = (params, theme) => {
           {lang.t('explain.unverified.fragment3')}
         </Text>
       ),
-    },
-    optimism: {
-      emoji: '⛽️',
-      extraHeight: 150,
-      logo: <ChainBadge chainId={ChainId.optimism} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: OPTIMISM_EXPLAINER,
-      title: lang.t('explain.optimism.title'),
-    },
-    arbitrum: {
-      emoji: '⛽️',
-      extraHeight: 144,
-      logo: <ChainBadge chainId={ChainId.arbitrum} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: ARBITRUM_EXPLAINER,
-      title: lang.t('explain.arbitrum.title'),
-    },
-    polygon: {
-      emoji: '⛽️',
-      extraHeight: 120,
-      logo: <ChainBadge chainId={ChainId.polygon} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: POLYGON_EXPLAINER,
-      title: lang.t('explain.polygon.title'),
-    },
-    bsc: {
-      emoji: '⛽️',
-      extraHeight: IS_ANDROID ? 120 : 160,
-      logo: <ChainBadge chainId={ChainId.bsc} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: BSC_EXPLAINER,
-      title: lang.t('explain.bsc.title'),
-    },
-    zora: {
-      emoji: '⛽️',
-      extraHeight: 144,
-      logo: <ChainBadge chainId={ChainId.zora} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: ZORA_EXPLAINER,
-      title: lang.t('explain.zora.title'),
-    },
-    base: {
-      emoji: '⛽️',
-      extraHeight: 144,
-      logo: <ChainBadge chainId={ChainId.base} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: BASE_EXPLAINER,
-      title: lang.t('explain.base.title'),
-    },
-    avalanche: {
-      emoji: '⛽️',
-      extraHeight: 144,
-      logo: <ChainBadge chainId={ChainId.avalanche} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: AVALANCHE_EXPLAINER,
-      title: lang.t('explain.avalanche.title'),
-    },
-    degen: {
-      emoji: '⛽️',
-      extraHeight: 144,
-      logo: <ChainBadge chainId={ChainId.degen} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: DEGEN_EXPLAINER,
-      title: lang.t('explain.degen.title'),
-    },
-    blast: {
-      emoji: '⛽️',
-      extraHeight: 144,
-      logo: <ChainBadge chainId={ChainId.blast} marginBottom={8} position="relative" size="large" />,
-      readMoreLink: buildRainbowLearnUrl({
-        url: 'https://learn.rainbow.me/layer-2-and-layer-3-networks',
-        query: {
-          campaign: 'explain',
-        },
-      }),
-      text: BLAST_EXPLAINER,
-      title: lang.t('explain.blast.title'),
     },
     failed_wc_connection: {
       emoji: '😵',
@@ -535,14 +434,14 @@ export const explainers = (params, theme) => {
     },
     swapResetInputs: {
       button: {
-        label: `Continue with ${networkName}`,
-        bgColor: colors?.networkColors[chainId] && colors?.alpha(colors?.networkColors[chainId], 0.06),
-        textColor: colors?.networkColors[chainId] && colors?.networkColors?.[network],
+        label: `Continue with ${chainsLabel[chainId]}`,
+        bgColor: color && colors?.alpha(color, 0.06),
+        textColor: color,
       },
       emoji: '🔐',
       extraHeight: -90,
       text: SWAP_RESET_EXPLAINER,
-      title: `Switching to ${networkName}`,
+      title: `Switching to ${chainsLabel[chainId]}`,
       logo:
         chainId !== ChainId.mainnet ? (
           <ChainBadge chainId={chainId} marginBottom={8} position="relative" size="large" />
@@ -552,8 +451,8 @@ export const explainers = (params, theme) => {
     },
     f2cSemiSupportedAssetPurchased: {
       emoji: '🎉',
-      title: i18n.t(i18n.l.wallet.add_cash_v2.explain_sheet.semi_supported.title),
-      text: i18n.t(i18n.l.wallet.add_cash_v2.explain_sheet.semi_supported.title),
+      title: lang.t(lang.l.wallet.add_cash_v2.explain_sheet.semi_supported.title),
+      text: lang.t(lang.l.wallet.add_cash_v2.explain_sheet.semi_supported.title),
       extraHeight: -80,
     },
     insufficientLiquidity: {
@@ -781,36 +680,6 @@ export const explainers = (params, theme) => {
         networkName: params?.networkName,
       }),
     },
-    flashbots: {
-      extraHeight: android ? 20 : 0,
-      emoji: '🤖',
-      stillCurious: (
-        <Text {...getBodyTextPropsWithColor(colors)}>
-          {lang.t('explain.flashbots.still_curious.fragment1')}
-          <Text
-            color={colors?.appleBlue}
-            onPress={() =>
-              Linking.openURL(
-                buildRainbowLearnUrl({
-                  url: 'https://learn.rainbow.me/protecting-transactions-with-flashbots',
-                  query: {
-                    campaign: 'explain',
-                  },
-                })
-              )
-            }
-            size="large"
-            suppressHighlighting
-            weight="semibold"
-          >
-            {lang.t('explain.flashbots.still_curious.fragment2')}
-          </Text>
-          {lang.t('explain.flashbots.still_curious.fragment3')}
-        </Text>
-      ),
-      text: lang.t('explain.flashbots.text'),
-      title: lang.t('explain.flashbots.title'),
-    },
     routeSwaps: {
       extraHeight: android ? 20 : 0,
       emoji: '🔀',
@@ -864,7 +733,7 @@ export const explainers = (params, theme) => {
     },
     swap_refuel_add: {
       logo: (
-        <DashedWrapper size={50} childXPosition={10} colors={[colors?.networkColors[chainId], colors?.appleBlue]}>
+        <DashedWrapper size={50} childXPosition={10} colors={[color, colors?.appleBlue]}>
           <RainbowCoinIcon
             size={30}
             icon={params?.nativeAsset?.icon_url}
@@ -895,14 +764,14 @@ export const explainers = (params, theme) => {
           networkName: params?.networkName,
           gasToken: params?.gasToken,
         }),
-        textColor: colors?.networkColors[chainId],
-        bgColor: colors?.networkColors[chainId] && colors?.alpha(colors?.networkColors[chainId], 0.05),
+        textColor: color,
+        bgColor: color && colors?.alpha(color, 0.05),
         onPress: params?.onRefuel,
       },
     },
     swap_refuel_deduct: {
       logo: (
-        <DashedWrapper size={50} childXPosition={10} colors={[colors?.networkColors[chainId], colors?.appleBlue]}>
+        <DashedWrapper size={50} childXPosition={10} colors={[color, colors?.appleBlue]}>
           <RainbowCoinIcon
             size={30}
             icon={params?.nativeAsset?.icon_url}
@@ -933,15 +802,15 @@ export const explainers = (params, theme) => {
           networkName: params?.networkName,
           gasToken: params?.gasToken,
         }),
-        textColor: colors?.networkColors[chainId],
-        bgColor: colors?.networkColors[chainId] && colors?.alpha(colors?.networkColors[chainId], 0.05),
+        textColor: color,
+        bgColor: color && colors?.alpha(color, 0.05),
         onPress: params?.onRefuel,
       },
     },
     swap_refuel_notice: {
       extraHeight: 50,
       logo: (
-        <DashedWrapper size={50} childXPosition={10} colors={[colors?.networkColors[chainId], colors?.appleBlue]}>
+        <DashedWrapper size={50} childXPosition={10} colors={[color, colors?.appleBlue]}>
           <RainbowCoinIcon
             size={30}
             icon={params?.nativeAsset?.icon_url}
@@ -997,6 +866,10 @@ const ExplainSheet = () => {
   }, [params, type]);
 
   const explainSheetConfig = useMemo(() => {
+    if (type === 'network') {
+      return networkExplainer({ chainId: params.chainId });
+    }
+
     return explainers(params, theme)[type];
   }, [theme, params, type]);
   const handleClose = useCallback(() => {

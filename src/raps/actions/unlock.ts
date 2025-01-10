@@ -2,13 +2,12 @@ import { Signer } from '@ethersproject/abstract-signer';
 import { MaxUint256 } from '@ethersproject/constants';
 import { Contract, PopulatedTransaction } from '@ethersproject/contracts';
 import { parseUnits } from '@ethersproject/units';
-import { getProvider } from '@/handlers/web3';
+import { getProvider, toHex } from '@/handlers/web3';
 import { Address, erc20Abi, erc721Abi } from 'viem';
 
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 import { TransactionGasParams, TransactionLegacyGasParams } from '@/__swaps__/types/gas';
-import { NewTransaction } from '@/entities/transactions';
-import { TxHash } from '@/resources/transactions/types';
+import { NewTransaction, TransactionStatus, TxHash } from '@/entities';
 import { addNewTransaction } from '@/state/pendingTransactions';
 import { RainbowError, logger } from '@/logger';
 
@@ -18,10 +17,9 @@ import { convertAmountToRawAmount, greaterThan } from '@/helpers/utilities';
 import { ActionProps, RapActionResult } from '../references';
 
 import { overrideWithFastSpeedIfNeeded } from './../utils';
-import { ethereumUtils } from '@/utils';
-import { toHex } from '@/__swaps__/utils/hex';
 import { TokenColors } from '@/graphql/__generated__/metadata';
 import { ParsedAsset } from '@/resources/assets/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 export const getAssetRawAllowance = async ({
   owner,
@@ -91,7 +89,12 @@ export const estimateApprove = async ({
     const gasLimit = await tokenContract.estimateGas.approve(spender, MaxUint256, {
       from: owner,
     });
-    return gasLimit ? gasLimit.toString() : `${gasUnits.basic_approval}`;
+
+    if (gasLimit === null || gasLimit === undefined || isNaN(Number(gasLimit.toString()))) {
+      return `${gasUnits.basic_approval}`;
+    }
+
+    return gasLimit.toString();
   } catch (error) {
     logger.error(new RainbowError('[raps/unlock]: error estimateApprove'), {
       message: (error as Error)?.message,
@@ -263,10 +266,12 @@ export const unlock = async ({
 
   if (!approval) throw new RainbowError('[raps/unlock]: error executeApprove');
 
+  const chainsName = useBackendNetworksStore.getState().getChainsName();
+
   const transaction = {
     asset: {
       ...assetToUnlock,
-      network: ethereumUtils.getNetworkFromChainId(assetToUnlock.chainId),
+      network: chainsName[assetToUnlock.chainId],
       colors: assetToUnlock.colors as TokenColors,
     } as ParsedAsset,
     data: approval.data,
@@ -275,11 +280,10 @@ export const unlock = async ({
     from: parameters.fromAddress,
     to: assetAddress,
     hash: approval.hash as TxHash,
-    // TODO: MARK - Replace this once we migrate network => chainId
-    network: ethereumUtils.getNetworkFromChainId(chainId),
+    network: chainsName[chainId],
     chainId: approval.chainId,
     nonce: approval.nonce,
-    status: 'pending',
+    status: TransactionStatus.pending,
     type: 'approve',
     approvalAmount: 'UNLIMITED',
     ...gasParams,

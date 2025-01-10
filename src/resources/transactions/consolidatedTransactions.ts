@@ -1,13 +1,11 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { InfiniteQueryConfig, QueryConfig, QueryFunctionArgs, createQueryKey, queryClient } from '@/react-query';
-import { NativeCurrencyKey, RainbowTransaction } from '@/entities';
-import { TransactionApiResponse, TransactionsReceivedMessage } from './types';
+import { NativeCurrencyKey, RainbowTransaction, TransactionApiResponse, TransactionsReceivedMessage } from '@/entities';
 import { RainbowError, logger } from '@/logger';
 import { rainbowFetch } from '@/rainbow-fetch';
 import { ADDYS_API_KEY } from 'react-native-dotenv';
-import { RainbowNetworkObjects } from '@/networks';
 import { parseTransaction } from '@/parsers/transactions';
-import { ethereumUtils } from '@/utils';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const CONSOLIDATED_TRANSACTIONS_INTERVAL = 30000;
 const CONSOLIDATED_TRANSACTIONS_TIMEOUT = 20000;
@@ -108,9 +106,9 @@ async function parseConsolidatedTransactions(
 ): Promise<RainbowTransaction[]> {
   const data = message?.payload?.transactions || [];
 
-  const parsedTransactionPromises = data.map((tx: TransactionApiResponse) =>
-    parseTransaction(tx, currency, ethereumUtils.getChainIdFromNetwork(tx.network))
-  );
+  const chainsIdByName = useBackendNetworksStore.getState().getChainsIdByName();
+
+  const parsedTransactionPromises = data.map((tx: TransactionApiResponse) => parseTransaction(tx, currency, chainsIdByName[tx.network]));
   // Filter out undefined values immediately
 
   const parsedConsolidatedTransactions = (await Promise.all(parsedTransactionPromises)).flat(); // Filter out any remaining undefined values
@@ -125,13 +123,11 @@ export function useConsolidatedTransactions(
   { address, currency }: Pick<ConsolidatedTransactionsArgs, 'address' | 'currency'>,
   config: InfiniteQueryConfig<ConsolidatedTransactionsResult, Error, ConsolidatedTransactionsResult> = {}
 ) {
-  const chainIds = RainbowNetworkObjects.filter(network => network.enabled && network.networkType !== 'testnet').map(network => network.id);
-
   return useInfiniteQuery(
     consolidatedTransactionsQueryKey({
       address,
       currency,
-      chainIds,
+      chainIds: useBackendNetworksStore.getState().getSupportedMainnetChainIds(),
     }),
     consolidatedTransactionsQueryFunction,
     {
@@ -139,6 +135,7 @@ export function useConsolidatedTransactions(
       keepPreviousData: true,
       getNextPageParam: lastPage => lastPage?.nextPage,
       refetchInterval: CONSOLIDATED_TRANSACTIONS_INTERVAL,
+      enabled: !!address,
       retry: 3,
     }
   );

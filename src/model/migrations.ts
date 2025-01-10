@@ -1,6 +1,6 @@
 import path from 'path';
 import { captureException } from '@sentry/react-native';
-import { findKey, isNumber, keys } from 'lodash';
+import { findKey, isEmpty, isNumber, keys } from 'lodash';
 import uniq from 'lodash/uniq';
 import RNFS from 'react-native-fs';
 import { MMKV } from 'react-native-mmkv';
@@ -38,7 +38,14 @@ import { favoritesQueryKey } from '@/resources/favorites';
 import { EthereumAddress, RainbowToken } from '@/entities';
 import { standardizeUrl, useFavoriteDappsStore } from '@/state/browser/favoriteDappsStore';
 import { useLegacyFavoriteDappsStore } from '@/state/legacyFavoriteDapps';
-import { getUniqueIdNetwork } from '@/utils/ethereumUtils';
+import { getAddressAndChainIdFromUniqueId, getUniqueId, getUniqueIdNetwork } from '@/utils/ethereumUtils';
+import { ParsedAssetsDictByChain, ParsedSearchAsset, UniqueId } from '@/__swaps__/types/assets';
+import { userAssetsStore } from '@/state/assets/userAssets';
+import { userAssetsQueryKey } from '@/__swaps__/screens/Swap/resources/assets/userAssets';
+import { useConnectedToAnvilStore } from '@/state/connectedToAnvil';
+import { selectorFilterByUserChains, selectUserAssetsList } from '@/__swaps__/screens/Swap/resources/_selectors/assets';
+import { UnlockableAppIconKey, unlockableAppIcons } from '@/appIcons/appIcons';
+import { unlockableAppIconStorage } from '@/featuresToUnlock/unlockableAppIconCheck';
 
 export default async function runMigrations() {
   // get current version
@@ -662,6 +669,81 @@ export default async function runMigrations() {
   };
 
   migrations.push(v20);
+
+  /**
+   *************** Migration v21 ******************
+   * Migrate hidden coins from MMKV to Zustand
+   */
+  const v21 = async () => {
+    const { wallets } = store.getState().wallets;
+    if (!wallets) return;
+
+    for (const wallet of Object.values(wallets)) {
+      for (const { address } of (wallet as RainbowWallet).addresses) {
+        const hiddenCoins = JSON.parse(mmkv.getString('hidden-coins-obj-' + address) ?? '{}');
+        if (isEmpty(hiddenCoins)) continue;
+
+        const hiddenAssets = Object.keys(hiddenCoins).reduce<UniqueId[]>((acc: UniqueId[], key) => {
+          // we need to run it through this funciton because users could have legacy coins when we had network-based uniqueId
+          const { address, chainId } = getAddressAndChainIdFromUniqueId(key);
+          const uniqueId = getUniqueId(address, chainId);
+          acc.push(uniqueId);
+          return acc;
+        }, []);
+
+        userAssetsStore.getState(address).setHiddenAssets(hiddenAssets);
+
+        // remove the old hidden coins obj storage
+        mmkv.delete('hidden-coins-obj-' + address);
+      }
+    }
+  };
+
+  migrations.push(v21);
+
+  /**
+   *************** Migration v22 ******************
+   * Reset icon checks
+   */
+  const v22 = async () => {
+    // For each appIcon, delete the handled flag
+    (Object.keys(unlockableAppIcons) as UnlockableAppIconKey[]).map(appIconKey => {
+      unlockableAppIconStorage.delete(appIconKey);
+      logger.debug('Resetting icon status for ' + appIconKey);
+    });
+  };
+
+  migrations.push(v22);
+
+  /**
+   *************** Migration v23 ******************
+   * Populate `legacyUserAssets` attribute in `userAssetsStore`
+   */
+  const v23 = async () => {
+    const state = store.getState();
+    const { wallets } = state.wallets;
+    const { nativeCurrency } = state.settings;
+
+    if (!wallets) return;
+
+    for (const wallet of Object.values(wallets)) {
+      for (const { address } of (wallet as RainbowWallet).addresses) {
+        const { connectedToAnvil } = useConnectedToAnvilStore.getState();
+        const queryKey = userAssetsQueryKey({ address, currency: nativeCurrency, testnetMode: connectedToAnvil });
+        const queryData: ParsedAssetsDictByChain | undefined = queryClient.getQueryData(queryKey);
+
+        if (!queryData) continue;
+
+        const userAssets = selectorFilterByUserChains({
+          data: queryData,
+          selector: selectUserAssetsList,
+        });
+        userAssetsStore.getState(address).setUserAssets(userAssets as ParsedSearchAsset[]);
+      }
+    }
+  };
+
+  migrations.push(v23);
 
   logger.debug(`[runMigrations]: ready to run migrations starting on number ${currentVersion}`);
   // await setMigrationVersion(17);

@@ -6,8 +6,7 @@ import { Text as RNText, StyleSheet } from 'react-native';
 import Animated, { useDerivedValue, useSharedValue } from 'react-native-reanimated';
 
 import { useSwapContext } from '@/__swaps__/screens/Swap/providers/swap-provider';
-import { ChainId, ChainNameDisplay } from '@/networks/types';
-import { chainNameForChainIdWithMainnetSubstitution } from '@/__swaps__/utils/chains';
+import { ChainId } from '@/state/backendNetworks/types';
 import { opacity } from '@/__swaps__/utils/swaps';
 import { analyticsV2 } from '@/analytics';
 import { ChainImage } from '@/components/coin-icon/ChainImage';
@@ -15,10 +14,11 @@ import { ContextMenuButton } from '@/components/context-menu';
 import { AnimatedText, Bleed, Box, Inline, Text, TextIcon, globalColors, useColorMode } from '@/design-system';
 import { useAccountAccentColor } from '@/hooks';
 import { useSharedValueState } from '@/hooks/reanimated/useSharedValueState';
-import { userAssetsStore } from '@/state/assets/userAssets';
+import { userAssetsStore, useUserAssetsStore } from '@/state/assets/userAssets';
 import { swapsStore } from '@/state/swaps/swapsStore';
 import { showActionSheetWithOptions } from '@/utils';
 import { OnPressMenuItemEventObject } from 'react-native-ios-context-menu';
+import { getChainsLabelWorklet, getChainsNameWorklet, useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 type ChainSelectionProps = {
   allText?: string;
@@ -29,10 +29,13 @@ export const ChainSelection = memo(function ChainSelection({ allText, output }: 
   const { isDarkMode } = useColorMode();
   const { accentColor: accountColor } = useAccountAccentColor();
   const { selectedOutputChainId, setSelectedOutputChainId } = useSwapContext();
+  const backendNetworks = useBackendNetworksStore(state => state.backendNetworksSharedValue);
 
   // chains sorted by balance on output, chains without balance hidden on input
-  const balanceSortedChainList = userAssetsStore(state => (output ? state.getBalanceSortedChainList() : state.getChainsWithBalance()));
-  const inputListFilter = useSharedValue(userAssetsStore.getState().filter);
+  const balanceSortedChainList = useUserAssetsStore(state => (output ? state.getBalanceSortedChainList() : state.getChainsWithBalance()));
+  const filter = useUserAssetsStore(state => state.filter);
+
+  const inputListFilter = useSharedValue(filter);
 
   const accentColor = useMemo(() => {
     if (c.contrast(accountColor, isDarkMode ? '#191A1C' : globalColors.white100) < (isDarkMode ? 2.125 : 1.5)) {
@@ -44,11 +47,13 @@ export const ChainSelection = memo(function ChainSelection({ allText, output }: 
   }, [accountColor, isDarkMode]);
 
   const chainName = useDerivedValue(() => {
+    const chainLabels = getChainsLabelWorklet(backendNetworks);
+
     return output
-      ? ChainNameDisplay[selectedOutputChainId.value]
+      ? chainLabels[selectedOutputChainId.value]
       : inputListFilter.value === 'all'
         ? allText
-        : ChainNameDisplay[inputListFilter.value as ChainId];
+        : chainLabels[inputListFilter.value as ChainId];
   });
 
   const handleSelectChain = useCallback(
@@ -73,15 +78,13 @@ export const ChainSelection = memo(function ChainSelection({ allText, output }: 
 
   const menuConfig = useMemo(() => {
     const supportedChains = balanceSortedChainList.map(chainId => {
-      const networkName = chainNameForChainIdWithMainnetSubstitution(chainId);
-      const displayName = ChainNameDisplay[chainId];
-
       return {
         actionKey: `${chainId}`,
-        actionTitle: displayName as string,
+        actionTitle: getChainsLabelWorklet(backendNetworks)[chainId],
         icon: {
           iconType: 'ASSET',
-          iconValue: `${networkName}Badge${chainId === ChainId.mainnet ? '' : 'NoShadow'}`,
+          // NOTE: chainsName[chainId] for mainnet is 'mainnet' and we need it to be 'ethereum'
+          iconValue: chainId === ChainId.mainnet ? 'ethereumBadge' : `${getChainsNameWorklet(backendNetworks)[chainId]}BadgeNoShadow`,
         },
       };
     });
@@ -100,7 +103,7 @@ export const ChainSelection = memo(function ChainSelection({ allText, output }: 
     return {
       menuItems: supportedChains,
     };
-  }, [balanceSortedChainList, output]);
+  }, [backendNetworks, balanceSortedChainList, output]);
 
   const onShowActionSheet = useCallback(() => {
     const chainTitles = menuConfig.menuItems.map(chain => chain.actionTitle);
@@ -189,7 +192,7 @@ export const ChainSelection = memo(function ChainSelection({ allText, output }: 
 const ChainButtonIcon = ({ output }: { output: boolean | undefined }) => {
   const { selectedOutputChainId: animatedSelectedOutputChainId } = useSwapContext();
 
-  const userAssetsFilter = userAssetsStore(state => (output ? undefined : state.filter));
+  const userAssetsFilter = useUserAssetsStore(state => (output ? undefined : state.filter));
   const selectedOutputChainId = useSharedValueState(animatedSelectedOutputChainId, { pauseSync: !output });
 
   return (

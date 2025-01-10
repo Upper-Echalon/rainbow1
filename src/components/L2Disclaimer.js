@@ -1,6 +1,6 @@
 import React from 'react';
 import RadialGradient from 'react-native-radial-gradient';
-import Divider from './Divider';
+import Divider from '@/components/Divider';
 import ButtonPressAnimation from './animations/ButtonPressAnimation';
 import ChainBadge from './coin-icon/ChainBadge';
 import { Column, Row } from './layout';
@@ -10,7 +10,7 @@ import { darkModeThemeColors } from '@/styles/colors';
 import * as lang from '@/languages';
 import { isL2Chain } from '@/handlers/web3';
 import { EthCoinIcon } from './coin-icon/EthCoinIcon';
-import { chainIdToNameMapping } from '@/networks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const L2Disclaimer = ({
   chainId,
@@ -57,7 +57,7 @@ const L2Disclaimer = ({
                 ? customText
                 : lang.t(lang.l.expanded_state.asset.l2_disclaimer, {
                     symbol,
-                    network: chainIdToNameMapping[chainId],
+                    network: useBackendNetworksStore.getState().getChainsName()[chainId],
                   })}
             </Text>
           </Column>

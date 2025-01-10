@@ -21,8 +21,7 @@ import isSVGImage from '@/utils/isSVG';
 import { refreshNFTContractMetadata, reportNFT } from '@/resources/nfts/simplehash';
 import { ContextCircleButton } from '@/components/context-menu';
 import { IS_ANDROID, IS_IOS } from '@/env';
-import { MenuActionConfig, MenuConfig } from 'react-native-ios-context-menu';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 const AssetActionsEnum = {
   copyTokenID: 'copyTokenID',
@@ -262,7 +261,7 @@ const UniqueTokenExpandedStateHeader = ({
   const isENS = asset.asset_contract?.address?.toLowerCase() === ENS_NFT_CONTRACT_ADDRESS.toLowerCase();
 
   const isPhotoDownloadAvailable = !isSVG && !isENS;
-  const assetMenuConfig: MenuConfig = useMemo(() => {
+  const assetMenuConfig = useMemo(() => {
     const AssetActions = getAssetActions({ chainId: asset.chainId });
 
     return {
@@ -343,12 +342,12 @@ const UniqueTokenExpandedStateHeader = ({
     // @ts-expect-error ContextMenu is an untyped JS component and can't type its onPress handler properly
     ({ nativeEvent: { actionKey } }) => {
       if (actionKey === AssetActionsEnum.etherscan) {
-        ethereumUtils.openNftInBlockExplorer(
+        ethereumUtils.openNftInBlockExplorer({
           // @ts-expect-error address could be undefined?
-          asset.asset_contract.address,
-          asset.id,
-          asset.network
-        );
+          contractAddress: asset.asset_contract.address,
+          tokenId: asset.id,
+          chainId: asset.chainId,
+        });
       } else if (actionKey === AssetActionsEnum.rainbowWeb) {
         Linking.openURL(rainbowWebUrl);
       } else if (actionKey === AssetActionsEnum.opensea) {
@@ -358,7 +357,10 @@ const UniqueTokenExpandedStateHeader = ({
       } else if (actionKey === AssetActionsEnum.copyTokenID) {
         setClipboard(asset.id);
       } else if (actionKey === AssetActionsEnum.download) {
-        saveToCameraRoll(getFullResUrl(asset.image_url));
+        if (asset?.image_url) {
+          const fullResUrl = getFullResUrl(asset.image_url);
+          fullResUrl && saveToCameraRoll(fullResUrl);
+        }
       } else if (actionKey === AssetActionsEnum.hide) {
         if (isHiddenAsset) {
           removeHiddenToken(asset);
@@ -443,11 +445,7 @@ const UniqueTokenExpandedStateHeader = ({
   const familyNameHitSlop: Space = '19px (Deprecated)';
 
   const assetMenuOptions = useMemo(() => {
-    return (
-      assetMenuConfig?.menuItems
-        ?.filter((item): item is MenuActionConfig => 'actionTitle' in item)
-        .map((item: MenuActionConfig) => item.actionTitle) ?? []
-    );
+    return assetMenuConfig?.menuItems?.filter(item => 'actionTitle' in item).map(item => item.actionTitle) ?? [];
   }, [assetMenuConfig]);
 
   return (
@@ -463,8 +461,8 @@ const UniqueTokenExpandedStateHeader = ({
               <ContextCircleButton
                 options={assetMenuOptions}
                 onPressActionSheet={(index: number) => {
-                  const actionItems = (assetMenuConfig?.menuItems || []).filter((item): item is MenuActionConfig => 'actionTitle' in item);
-                  const actionKey: MenuActionConfig = actionItems[index];
+                  const actionItems = (assetMenuConfig?.menuItems || []).filter(item => 'actionTitle' in item);
+                  const actionKey = actionItems[index];
                   if (!actionKey) return;
                   handlePressAssetMenuItem({
                     nativeEvent: { actionKey: actionKey.actionKey },

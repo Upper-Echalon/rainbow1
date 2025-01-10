@@ -4,7 +4,7 @@ import { ParsedAddressAsset } from '@/entities';
 import { useTheme } from '@/theme';
 import ChainBadge from './ChainBadge';
 import RainbowCoinIcon from './RainbowCoinIcon';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 export function TwoCoinsIcon({
   size = 45,

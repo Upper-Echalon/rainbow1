@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 /* eslint-disable no-await-in-loop */
 import { exec } from 'child_process';
 import { JsonRpcProvider } from '@ethersproject/providers';
 import { Wallet } from '@ethersproject/wallet';
 import { expect, device, element, by, waitFor } from 'detox';
-import { parseEther } from '@ethersproject/units';
+import { formatEther, parseEther } from '@ethersproject/units';
 import { IosElementAttributes, AndroidElementAttributes } from 'detox/detox';
 
 const TESTING_WALLET = '0x3637f053D542E6D00Eee42D656dD7C59Fa33a62F';
@@ -19,12 +20,12 @@ interface ProviderFunction {
   _instance?: JsonRpcProvider;
 }
 
-export async function startHardhat() {
+export async function startAnvil() {
   await delayTime('short');
-  exec('yarn hardhat');
+  exec('yarn anvil');
 }
 
-export async function killHardhat() {
+export async function killAnvil() {
   await delayTime('short');
   exec('kill $(lsof -t -i:8545)');
 }
@@ -52,14 +53,14 @@ export async function importWalletFlow(customSeed?: string) {
   await checkIfVisible('wallet-screen');
 }
 
-export async function beforeAllcleanApp({ hardhat }: { hardhat?: boolean }) {
+export async function beforeAllcleanApp({ anvil }: { anvil?: boolean }) {
   jest.resetAllMocks();
-  hardhat && (await startHardhat());
+  anvil && (await startAnvil());
 }
 
-export async function afterAllcleanApp({ hardhat }: { hardhat?: boolean }) {
+export async function afterAllcleanApp({ anvil }: { anvil?: boolean }) {
   await device.clearKeychain();
-  hardhat && (await killHardhat());
+  anvil && (await killAnvil());
 }
 
 export async function tap(elementId: string | RegExp) {
@@ -201,6 +202,7 @@ export async function clearField(elementId: string | RegExp) {
 
 export async function tapAndLongPress(elementId: string | RegExp, duration?: number) {
   try {
+    // @ts-expect-error
     return await element(by.id(elementId)).longPress(duration);
   } catch (error) {
     throw new Error(`Error long-pressing element by id "${elementId}": ${error}`);
@@ -209,6 +211,7 @@ export async function tapAndLongPress(elementId: string | RegExp, duration?: num
 
 export async function tapAndLongPressByText(text: string | RegExp, duration?: number) {
   try {
+    // @ts-expect-error
     return await element(by.text(text)).longPress(duration);
   } catch (error) {
     throw new Error(`Error long-pressing element by text "${text}": ${error}`);
@@ -389,7 +392,7 @@ export async function checkIfElementHasString(elementID: string | RegExp, text: 
 export async function relaunchApp() {
   try {
     await device.terminateApp('me.rainbow');
-    return await device.launchApp({ newInstance: true });
+    return await device.launchApp({ newInstance: true, launchArgs: { IS_TEST: true } });
   } catch (error) {
     throw new Error(`Error relaunching app: ${error}`);
   }
@@ -464,16 +467,23 @@ export const getProvider: ProviderFunction = () => {
 };
 
 export async function sendETHtoTestWallet() {
+  console.log('getting provider');
   const provider = getProvider();
-  // Hardhat account 0 that has 10000 ETH
+  console.log('got provider', provider);
+  // anvil account 0 that has 10000 ETH
   const wallet = new Wallet('0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80', provider);
+  console.log('got wallet', wallet);
   // Sending 20 ETH so we have enough to pay the tx fees even when the gas is too high
+  console.log('sending eth');
   await wallet.sendTransaction({
     to: TESTING_WALLET,
     value: parseEther('20'),
   });
+  console.log('sent eth');
   await delayTime('long');
+  console.log('checking balance');
   const balance = await provider.getBalance(TESTING_WALLET);
+  console.log('got balance', formatEther(balance));
   if (balance.lt(parseEther('20'))) {
     throw Error('Error sending ETH to test wallet');
   }
@@ -483,7 +493,7 @@ export async function sendETHtoTestWallet() {
 export async function openDeeplinkColdStart(url: string) {
   await device.terminateApp();
   await device.launchApp({
-    launchArgs: { detoxEnableSynchronization: 0 },
+    launchArgs: { detoxEnableSynchronization: 0, IS_TEST: true },
     newInstance: true,
     url,
   });
@@ -494,6 +504,7 @@ export async function openDeeplinkFromBackground(url: string) {
   await device.sendToHome();
   await device.enableSynchronization();
   await device.launchApp({
+    launchArgs: { IS_TEST: true },
     newInstance: false,
     url,
   });
