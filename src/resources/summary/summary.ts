@@ -16,6 +16,33 @@ interface AddysSummary {
   data: {
     addresses: {
       [key: Address]: {
+        meta: {
+          rainbow: {
+            transactions: number;
+          };
+          farcaster?: {
+            object: string;
+            fid: number;
+            username: string;
+            display_name: string;
+            pfp_url: string;
+            custody_address: string;
+            profile: {
+              Bio: {
+                text: string;
+              };
+            };
+            follower_count: number;
+            following_count: number;
+            verifications: string[];
+            verified_addresses: {
+              eth_addresses: string[];
+              sol_addresses: string[];
+            };
+            verified_accounts: string[];
+            power_badge: boolean;
+          };
+        };
         summary: {
           native_balance_by_symbol: {
             [key in 'ETH' | 'MATIC' | 'BNB' | 'AVAX']: {
@@ -27,18 +54,22 @@ interface AddysSummary {
           num_erc20s: number;
           last_activity: number;
           asset_value: number | null;
+          claimables_value: number | null;
+          positions_value: number | null;
         };
-      };
-      summary_by_chain: {
-        [key: number]: {
-          native_balance: {
-            symbol: string;
-            quantity: string;
-            decimals: number;
+        summary_by_chain: {
+          [key: number]: {
+            native_balance: {
+              symbol: string;
+              quantity: string;
+              decimals: number;
+            };
+            num_erc20s: number;
+            last_activity: number;
+            asset_value: number | null;
+            claimables_value: number | null;
+            positions_value: number | null;
           };
-          num_erc20s: number;
-          last_activity: number;
-          asset_value: number | null;
         };
       };
     };
@@ -57,7 +88,7 @@ export type AddysSummaryArgs = {
 // Query Key
 
 export const addysSummaryQueryKey = ({ addresses, currency }: AddysSummaryArgs) =>
-  createQueryKey('addysSummary', { addresses, currency }, { persisterVersion: 1 });
+  createQueryKey('addysSummary', { addresses, currency }, { persisterVersion: 2 });
 
 type AddysSummaryQueryKey = ReturnType<typeof addysSummaryQueryKey>;
 
@@ -70,6 +101,7 @@ async function addysSummaryQueryFunction({ queryKey: [{ addresses, currency }] }
     JSON.stringify({
       currency,
       addresses,
+      enableThirdParty: true,
     })
   );
   return data as AddysSummary;

@@ -8,13 +8,13 @@ import { Bleed, Box, IconContainer, Text, globalColors, useColorMode } from '@/d
 import { SEPARATOR_COLOR } from '@/__swaps__/screens/Swap/constants';
 import { getColorValueForThemeWorklet, opacity } from '@/__swaps__/utils/swaps';
 import { IS_ANDROID, IS_IOS } from '@/env';
-import { AnimatedBlurView } from '@/__swaps__/screens/Swap/components/AnimatedBlurView';
+import { AnimatedBlurView } from '@/components/AnimatedComponents/AnimatedBlurView';
 import { useSwapContext } from '@/__swaps__/screens/Swap/providers/swap-provider';
 import { TIMING_CONFIGS } from '@/components/animations/animationConfigs';
 import { SwapAssetType } from '@/__swaps__/types/swap';
 import { GestureHandlerButton } from './GestureHandlerButton';
 import { useSwapsStore } from '@/state/swaps/swapsStore';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 export const FlipButton = () => {
   const { isDarkMode } = useColorMode();
@@ -90,7 +90,7 @@ export const FlipButton = () => {
     return {
       shadowColor: isDarkMode
         ? globalColors.grey100
-        : getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.mixedShadowColor, false, true),
+        : getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.mixedShadowColor, false),
     };
   });
 
@@ -162,7 +162,7 @@ const SpinnerComponent = () => {
 
   const animatedColor = useDerivedValue(() => {
     return withTiming(
-      getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.highContrastColor, isDarkMode, true),
+      getColorValueForThemeWorklet(internalSelectedOutputAsset.value?.highContrastColor, isDarkMode),
       TIMING_CONFIGS.slowFadeConfig
     );
   });

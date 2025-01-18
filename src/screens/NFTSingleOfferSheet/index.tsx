@@ -27,7 +27,7 @@ import ConditionalWrap from 'conditional-wrap';
 import Routes from '@/navigation/routesNames';
 import { useLegacyNFTs } from '@/resources/nfts';
 import { useAccountSettings, useGas, useWallets } from '@/hooks';
-import { NewTransaction } from '@/entities';
+import { NewTransaction, TransactionDirection, TransactionStatus } from '@/entities';
 import { analyticsV2 } from '@/analytics';
 import { BigNumber } from '@ethersproject/bignumber';
 import { HoldToAuthorizeButton } from '@/components/buttons';
@@ -39,8 +39,7 @@ import { createWalletClient, http } from 'viem';
 
 import { RainbowError, logger } from '@/logger';
 import { useTheme } from '@/theme';
-import { Network, ChainId } from '@/networks/types';
-import { getNetworkObject } from '@/networks';
+import { Network, ChainId } from '@/state/backendNetworks/types';
 import { CardSize } from '@/components/unique-token/CardSize';
 import { queryClient } from '@/react-query';
 import { nftOffersQueryKey } from '@/resources/reservoir/nftOffersQuery';
@@ -48,11 +47,12 @@ import { getRainbowFeeAddress } from '@/resources/reservoir/utils';
 import { useExternalToken } from '@/resources/assets/externalAssetsQuery';
 import RainbowCoinIcon from '@/components/coin-icon/RainbowCoinIcon';
 import { addNewTransaction } from '@/state/pendingTransactions';
-import ethereumUtils, { getUniqueId } from '@/utils/ethereumUtils';
+import { getUniqueId } from '@/utils/ethereumUtils';
 import { getNextNonce } from '@/state/nonces';
 import { metadataPOSTClient } from '@/graphql';
 import { ethUnits } from '@/references';
 import { Transaction } from '@/graphql/__generated__/metadataPOST';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const NFT_IMAGE_HEIGHT = 160;
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
@@ -94,7 +94,7 @@ export function NFTSingleOfferSheet() {
   } = useLegacyNFTs({ address: accountAddress });
 
   const { offer } = params as { offer: NftOffer };
-  const offerChainId = ethereumUtils.getChainIdFromNetwork(offer.network as Network);
+  const offerChainId = useBackendNetworksStore.getState().getChainsIdByName()[offer.network as Network];
   const { data: externalAsset } = useExternalToken({
     address: offer.paymentToken.address,
     chainId: offerChainId,
@@ -179,12 +179,11 @@ export function NFTSingleOfferSheet() {
 
   const estimateGas = useCallback(() => {
     try {
-      const networkObj = getNetworkObject({ chainId: offerChainId });
       const signer = createWalletClient({
         // @ts-ignore
         account: accountAddress,
-        chain: networkObj,
-        transport: http(networkObj.rpc()),
+        chain: useBackendNetworksStore.getState().getDefaultChains()[offerChainId],
+        transport: http(useBackendNetworksStore.getState().getChainDefaultRpc(offerChainId)),
       });
       getClient()?.actions.acceptOffer({
         items: [
@@ -198,7 +197,7 @@ export function NFTSingleOfferSheet() {
               feesOnTop: [feeParam],
             }
           : undefined,
-        chainId: networkObj.id,
+        chainId: offerChainId,
         precheck: true,
         wallet: signer,
         onProgress: async (steps: Execute['steps']) => {
@@ -226,7 +225,7 @@ export function NFTSingleOfferSheet() {
           const txSimEstimate = parseInt(
             (
               await metadataPOSTClient.simulateTransactions({
-                chainId: networkObj.id,
+                chainId: offerChainId,
                 transactions: txs,
               })
             )?.simulateTransactions?.[0]?.gas?.estimate ?? '0x0',
@@ -242,7 +241,7 @@ export function NFTSingleOfferSheet() {
     } catch {
       logger.error(new RainbowError('[NFTSingleOfferSheet]: Failed to estimate gas'));
     }
-  }, [accountAddress, feeParam, offerChainId, offer, updateTxFee]);
+  }, [accountAddress, feeParam, offer.nft.contractAddress, offer.nft.tokenId, offerChainId, updateTxFee]);
 
   // estimate gas
   useEffect(() => {
@@ -253,7 +252,7 @@ export function NFTSingleOfferSheet() {
     return () => {
       stopPollingGasFees();
     };
-  }, [estimateGas, isExpired, isReadOnlyWallet, offer.network, offerChainId, startPollingGasFees, stopPollingGasFees, updateTxFee]);
+  }, [estimateGas, isExpired, isReadOnlyWallet, offerChainId, startPollingGasFees, stopPollingGasFees]);
 
   const acceptOffer = useCallback(async () => {
     logger.debug(`[NFTSingleOfferSheet]: Initiating sale of NFT ${offer.nft.contractAddress}:${offer.nft.tokenId}`);
@@ -280,14 +279,13 @@ export function NFTSingleOfferSheet() {
     const privateKey = await loadPrivateKey(accountAddress, false);
     // @ts-ignore
     const account = privateKeyToAccount(privateKey);
-    const networkObj = getNetworkObject({ chainId: offerChainId });
 
     const signer = createWalletClient({
       account,
-      chain: networkObj,
-      transport: http(networkObj.rpc()),
+      chain: useBackendNetworksStore.getState().getDefaultChains()[offerChainId],
+      transport: http(useBackendNetworksStore.getState().getChainDefaultRpc(offerChainId)),
     });
-    const nonce = await getNextNonce({ address: accountAddress, chainId: networkObj.id });
+    const nonce = await getNextNonce({ address: accountAddress, chainId: offerChainId });
     try {
       let errorMessage = '';
       let didComplete = false;
@@ -303,7 +301,7 @@ export function NFTSingleOfferSheet() {
               feesOnTop: [feeParam],
             }
           : undefined,
-        chainId: networkObj.id,
+        chainId: offerChainId,
         wallet: signer!,
         onProgress: (steps: Execute['steps']) => {
           setIsAccepting(true);
@@ -324,7 +322,7 @@ export function NFTSingleOfferSheet() {
                 };
                 if (step.id === 'sale') {
                   tx = {
-                    status: 'pending',
+                    status: TransactionStatus.pending,
                     chainId: offerChainId,
                     to: item.data?.to,
                     from: item.data?.from,
@@ -339,12 +337,12 @@ export function NFTSingleOfferSheet() {
                     },
                     changes: [
                       {
-                        direction: 'out',
+                        direction: TransactionDirection.OUT,
                         asset,
                         value: 1,
                       },
                       {
-                        direction: 'in',
+                        direction: TransactionDirection.IN,
                         asset: {
                           ...offer.paymentToken,
                           network: offer.network as Network,
@@ -358,7 +356,7 @@ export function NFTSingleOfferSheet() {
                   };
                 } else if (step.id === 'nft-approval') {
                   tx = {
-                    status: 'pending',
+                    status: TransactionStatus.pending,
                     chainId: offerChainId,
                     to: item.data?.to,
                     from: item.data?.from,
@@ -425,13 +423,13 @@ export function NFTSingleOfferSheet() {
     } finally {
       setIsAccepting(false);
     }
-  }, [accountAddress, feeParam, navigate, offerChainId, nft, offer, rainbowFeeDecimal]);
+  }, [offer, rainbowFeeDecimal, accountAddress, offerChainId, feeParam, navigate, nft]);
 
   let buttonLabel = '';
   if (!isAccepting) {
     if (insufficientEth) {
       buttonLabel = lang.t('button.confirm_exchange.insufficient_token', {
-        tokenName: getNetworkObject({ chainId: offerChainId }).nativeCurrency.symbol,
+        tokenName: useBackendNetworksStore.getState().getChainsNativeAsset()[offerChainId].symbol,
       });
     } else {
       buttonLabel = i18n.t(i18n.l.nft_offers.single_offer_sheet.hold_to_sell);
@@ -527,9 +525,8 @@ export function NFTSingleOfferSheet() {
                         icon={externalAsset?.icon_url}
                         chainId={offerChainId}
                         symbol={offer.paymentToken.symbol}
-                        theme={theme}
-                        colors={externalAsset?.colors}
-                        ignoreBadge
+                        color={externalAsset?.colors?.primary || externalAsset?.colors?.fallback || undefined}
+                        showBadge={false}
                       />
                       <Text color="label" align="right" size="17pt" weight="bold">
                         {listPrice} {offer.paymentToken.symbol}
@@ -565,9 +562,8 @@ export function NFTSingleOfferSheet() {
                         icon={externalAsset?.icon_url}
                         chainId={offerChainId}
                         symbol={offer.paymentToken.symbol}
-                        theme={theme}
-                        colors={externalAsset?.colors}
-                        ignoreBadge
+                        color={externalAsset?.colors?.primary || externalAsset?.colors?.fallback || undefined}
+                        showBadge={false}
                       />
 
                       <Text color="labelSecondary" align="right" size="17pt" weight="medium">
@@ -653,9 +649,8 @@ export function NFTSingleOfferSheet() {
                         icon={externalAsset?.icon_url}
                         chainId={offerChainId}
                         symbol={offer.paymentToken.symbol}
-                        theme={theme}
-                        colors={externalAsset?.colors}
-                        ignoreBadge
+                        color={externalAsset?.colors?.primary || externalAsset?.colors?.fallback || undefined}
+                        showBadge={false}
                       />
                       <Text color="label" align="right" size="17pt" weight="bold">
                         {netCrypto} {offer.paymentToken.symbol}
@@ -672,12 +667,10 @@ export function NFTSingleOfferSheet() {
               </Inset>
               {isReadOnlyWallet || isExpired ? (
                 <AccentColorProvider color={offer.nft.predominantColor || buttonColorFallback}>
-                  {/* @ts-ignore js component */}
                   <Box
                     as={ButtonPressAnimation}
                     background="accent"
                     height="46px"
-                    // @ts-ignore
                     disabled={isExpired}
                     width="full"
                     borderRadius={99}
@@ -722,7 +715,6 @@ export function NFTSingleOfferSheet() {
                     parentHorizontalPadding={28}
                     showBiometryIcon={!insufficientEth}
                   />
-                  {/* @ts-ignore */}
                   <GasSpeedButton
                     asset={{
                       color: offer.nft.predominantColor || buttonColorFallback,

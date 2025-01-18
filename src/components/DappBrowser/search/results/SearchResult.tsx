@@ -18,23 +18,23 @@ export const SearchResult = ({ index, goToUrl }: { index: number; goToUrl: (url:
   const { isDarkMode } = useColorMode();
   const { width: deviceWidth } = useDimensions();
 
-  const dapp = useDerivedValue(() => searchResults?.value[index]);
-  const iconUrl = useDerivedValue(() => dapp.value?.iconUrl ?? '');
-  const name = useDerivedValue(() => dapp.value?.name);
-  const urlDisplay = useDerivedValue(() => dapp.value?.urlDisplay);
+  const dapp = useDerivedValue(() => (_WORKLET ? searchResults?.value[index] : null));
+  const iconUrl = useDerivedValue(() => (_WORKLET ? dapp.value?.iconUrl ?? dapp.value?.name : undefined));
+  const name = useDerivedValue(() => (_WORKLET ? dapp.value?.name : undefined));
+  const urlDisplay = useDerivedValue(() => (_WORKLET ? dapp.value?.urlDisplay : undefined));
 
   const animatedIconSource = useAnimatedProps(() => {
     return {
       source: {
         ...DEFAULT_FASTER_IMAGE_CONFIG,
-        url: iconUrl.value,
+        url: _WORKLET ? iconUrl.value : '',
       },
     };
   });
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
-      display: dapp.value ? 'flex' : 'none',
+      display: _WORKLET && dapp.value ? 'flex' : 'none',
     };
   });
 
@@ -49,7 +49,13 @@ export const SearchResult = ({ index, goToUrl }: { index: number; goToUrl: (url:
   }, [dapp, goToUrl]);
 
   const fallbackIconStyle = useAnimatedStyle(() => {
-    return { display: dapp.value?.iconUrl ? 'none' : 'flex' };
+    return { display: !_WORKLET || dapp.value?.iconUrl ? 'none' : 'flex' };
+  });
+
+  const imageStyle = useAnimatedStyle(() => {
+    return {
+      display: _WORKLET && dapp.value?.iconUrl ? 'flex' : 'none',
+    };
   });
 
   return (
@@ -80,7 +86,7 @@ export const SearchResult = ({ index, goToUrl }: { index: number; goToUrl: (url:
               </Animated.View>
               {/* ⚠️ TODO: This works but we should figure out how to type this correctly to avoid this error */}
               {/* @ts-expect-error: Doesn't pick up that it's getting a source prop via animatedProps */}
-              <AnimatedFasterImage animatedProps={animatedIconSource} style={styles.iconImage} />
+              <AnimatedFasterImage animatedProps={animatedIconSource} style={[imageStyle, styles.iconImage]} />
             </Box>
           </Box>
           <Box width={{ custom: deviceWidth - 100 }}>
@@ -105,7 +111,7 @@ export const GoogleSearchResult = ({ goToUrl }: { goToUrl: (url: string) => void
   const { searchQuery } = useSearchContext();
   const { width: deviceWidth } = useDimensions();
 
-  const animatedText = useDerivedValue(() => `${searchText} "${searchQuery?.value}"`);
+  const animatedText = useDerivedValue(() => (_WORKLET ? `${searchText} "${searchQuery?.value}"` : ''));
 
   const onPress = useCallback(
     () => searchQuery && goToUrl(`https://www.google.com/search?q=${encodeURIComponent(searchQuery.value)}`),

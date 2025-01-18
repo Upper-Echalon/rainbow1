@@ -2,12 +2,8 @@ import { Messenger } from '@/browserMessaging/AppMessenger';
 import { AddEthereumChainProposedChain, RequestArguments, RequestResponse, handleProviderRequest } from '@rainbow-me/provider';
 import * as lang from '@/languages';
 
-import { Provider } from '@ethersproject/providers';
-
-import { RainbowNetworkObjects, RainbowSupportedChainIds } from '@/networks';
 import { getProvider } from '@/handlers/web3';
 import { UserRejectedRequestError } from 'viem';
-import { convertHexToString } from '@/helpers/utilities';
 import { logger } from '@/logger';
 import { ActiveSession } from '@rainbow-me/provider/dist/references/appSession';
 import { handleDappBrowserConnectionPrompt, handleDappBrowserRequest } from '@/utils/requestNavigationHandlers';
@@ -15,7 +11,8 @@ import { Tab } from '@rainbow-me/provider/dist/references/messengers';
 import { getDappMetadata } from '@/resources/metadata/dapp';
 import { useAppSessionsStore } from '@/state/appSessions';
 import { BigNumber } from '@ethersproject/bignumber';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 export type ProviderRequestPayload = RequestArguments & {
   id: number;
@@ -165,7 +162,10 @@ const messengerProviderRequestFn = async (messenger: Messenger, request: Provide
 
 const isSupportedChainId = (chainId: number | string) => {
   const numericChainId = BigNumber.from(chainId).toNumber();
-  return !!RainbowSupportedChainIds.find(chainId => chainId === numericChainId);
+  return !!useBackendNetworksStore
+    .getState()
+    .getSupportedChainIds()
+    .find(chainId => chainId === numericChainId);
 };
 const getActiveSession = ({ host }: { host: string }): ActiveSession => {
   const hostSessions = useAppSessionsStore.getState().getActiveSession({ host });
@@ -178,14 +178,12 @@ const getActiveSession = ({ host }: { host: string }): ActiveSession => {
       : null;
 
   if (!appSession) return null;
+
   return {
     address: appSession?.address || '',
     chainId: appSession.chainId,
   };
-  // return null;
 };
-
-const getChain = (chainId: number) => RainbowNetworkObjects.find(network => Number(network.id) === chainId);
 
 const checkRateLimitFn = async (host: string) => {
   // try {
@@ -270,9 +268,7 @@ export const handleProviderRequestApp = ({ messenger, data, meta }: { messenger:
     callbackOptions?: CallbackOptions;
   }): { chainAlreadyAdded: boolean } => {
     const { chainId } = proposedChain;
-    const supportedChains = RainbowNetworkObjects.filter(network => network.features.walletconnect).map(network => network.id.toString());
-    const numericChainId = convertHexToString(chainId);
-    if (supportedChains.includes(numericChainId)) {
+    if (useBackendNetworksStore.getState().getDefaultChains()[Number(chainId)]) {
       // TODO - Open add / switch ethereum chain
       return { chainAlreadyAdded: true };
     } else {
@@ -327,15 +323,13 @@ export const handleProviderRequestApp = ({ messenger, data, meta }: { messenger:
     callbackOptions?: CallbackOptions;
   }) => {
     const { chainId } = proposedChain;
-    const supportedChains = RainbowNetworkObjects.filter(network => network.features.walletconnect).map(network => network.id.toString());
-    const numericChainId = convertHexToString(chainId);
-    const supportedChainId = supportedChains.includes(numericChainId);
+    const supportedChainId = useBackendNetworksStore.getState().getSupportedChainIds().includes(Number(chainId));
     if (supportedChainId) {
       const host = getDappHost(callbackOptions?.sender.url) || '';
       const activeSession = getActiveSession({ host });
       if (activeSession) {
-        useAppSessionsStore.getState().updateActiveSessionNetwork({ host: host, chainId: Number(numericChainId) });
-        messenger.send(`chainChanged:${host}`, Number(numericChainId));
+        useAppSessionsStore.getState().updateActiveSessionNetwork({ host: host, chainId: Number(chainId) });
+        messenger.send(`chainChanged:${host}`, Number(chainId));
       }
       console.warn('PROVIDER TODO: TODO SEND NOTIFICATION');
     }
@@ -350,9 +344,9 @@ export const handleProviderRequestApp = ({ messenger, data, meta }: { messenger:
     checkRateLimit,
     onSwitchEthereumChainNotSupported,
     onSwitchEthereumChainSupported,
-    getProvider: chainId => getProvider({ chainId: chainId as number }) as unknown as Provider,
+    getProvider,
     getActiveSession,
-    getChain,
+    getChainNativeCurrency: chainId => useBackendNetworksStore.getState().getChainsNativeAsset()[chainId],
   });
 
   // @ts-ignore

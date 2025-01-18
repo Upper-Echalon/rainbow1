@@ -16,7 +16,7 @@ import { useNavigation } from '@/navigation';
 import { getProvider } from '@/handlers/web3';
 import { analyticsV2 } from '@/analytics';
 import { delay } from '@/utils/delay';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 type PointsProfileContext = {
   step: RainbowPointsFlowSteps;
@@ -140,7 +140,7 @@ export const PointsProfileProvider = ({ children }: { children: React.ReactNode 
         Alert.alert(i18n.t(i18n.l.points.console.generic_alert));
         throw new RainbowError('Points: Error loading wallet');
       }
-      const signatureResponse = await signPersonalMessage(challenge, wallet, provider);
+      const signatureResponse = await signPersonalMessage(challenge, provider, wallet);
       if (signatureResponse && isHardwareWallet) {
         goBack();
       }

@@ -9,7 +9,7 @@ import { Box, Inline, Text } from '@/design-system';
 import { DetailIcon, DetailBadge, IconContainer } from '@/components/Transactions/TransactionIcons';
 import { SMALL_CARD_ROW_HEIGHT } from '@/components/Transactions/constants';
 import { DetailType, DetailInfo } from '@/components/Transactions/types';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 interface TransactionDetailsRowProps {
   chainId?: ChainId;
@@ -35,7 +35,7 @@ export const TransactionDetailsRow = ({ chainId, detailType, onPress, value }: T
           {detailType === 'sourceCodeVerification' && (
             <DetailBadge type={value === 'VERIFIED' ? 'verified' : value === 'UNVERIFIED' ? 'unverified' : 'unknown'} value={value} />
           )}
-          {detailType === 'chain' && chainId && <ChainImage size={12} chainId={chainId} />}
+          {detailType === 'chain' && chainId && <ChainImage size={12} chainId={chainId} position="relative" />}
           {detailType !== 'function' && detailType !== 'sourceCodeVerification' && (
             <Text align="right" color="labelTertiary" numberOfLines={1} size="15pt" weight="semibold">
               {value}

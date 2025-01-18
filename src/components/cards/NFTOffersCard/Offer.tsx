@@ -21,9 +21,9 @@ import Svg, { Path } from 'react-native-svg';
 import RainbowCoinIcon from '@/components/coin-icon/RainbowCoinIcon';
 import { useExternalToken } from '@/resources/assets/externalAssetsQuery';
 import { useAccountSettings } from '@/hooks';
-import { Network } from '@/networks/types';
-import { ethereumUtils } from '@/utils';
+import { Network } from '@/state/backendNetworks/types';
 import { AddressOrEth } from '@/__swaps__/types/assets';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 export const CELL_HORIZONTAL_PADDING = 7;
@@ -68,7 +68,7 @@ export const Offer = ({ offer }: { offer: NftOffer }) => {
   const { colorMode } = useColorMode();
   const theme = useTheme();
   const { nativeCurrency } = useAccountSettings();
-  const offerChainId = ethereumUtils.getChainIdFromNetwork(offer.network as Network);
+  const offerChainId = useBackendNetworksStore.getState().getChainsIdByName()[offer.network as Network];
   const { data: externalAsset } = useExternalToken({
     address: offer.paymentToken.address as AddressOrEth,
     chainId: offerChainId,
@@ -242,9 +242,8 @@ export const Offer = ({ offer }: { offer: NftOffer }) => {
             icon={externalAsset?.icon_url}
             chainId={offerChainId}
             symbol={offer.paymentToken.symbol}
-            theme={theme}
-            colors={externalAsset?.colors}
-            ignoreBadge
+            color={externalAsset?.colors?.primary || externalAsset?.colors?.fallback || undefined}
+            showBadge={false}
           />
         </View>
         <Text color="label" size="13pt" weight="heavy">

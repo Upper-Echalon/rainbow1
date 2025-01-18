@@ -4,9 +4,11 @@ import { Emoji } from '../text';
 
 interface GravityEmojiProps {
   distance: number;
+  duration: number;
   emoji: string;
+  index: number;
   left: number;
-  size: number;
+  size: string;
   top: number;
 }
 
@@ -72,16 +74,12 @@ const GravityEmoji = ({ distance, emoji, left, size, top }: GravityEmojiProps) =
         {
           left,
           position: 'absolute',
-          top: top || size * -0.5,
+          top: top || Number(size) * -0.5,
         },
         animatedStyle,
       ]}
     >
-      <Emoji
-        name={emoji}
-        // @ts-expect-error – JS component
-        size={size}
-      />
+      <Emoji name={emoji} size={size} />
     </Animated.View>
   );
 };

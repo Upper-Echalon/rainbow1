@@ -11,11 +11,10 @@ import {
   sumWorklet,
   toFixedWorklet,
   toScaledIntegerWorklet,
-} from '@/__swaps__/safe-math/SafeMath';
+} from '@/safe-math/SafeMath';
 import { ExtendedAnimatedAssetWithColors } from '@/__swaps__/types/assets';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 import { ParsedAddressAsset } from '@/entities';
-import { useUserNativeNetworkAsset } from '@/resources/assets/useUserAsset';
 import { CrosschainQuote, Quote, QuoteError } from '@rainbow-me/swaps';
 import { deepEqualWorklet } from '@/worklets/comparisons';
 import { debounce } from 'lodash';
@@ -26,6 +25,10 @@ import { GasSettings } from '../hooks/useCustomGas';
 import { useSelectedGas } from '../hooks/useSelectedGas';
 import { useSwapEstimatedGasLimit } from '../hooks/useSwapEstimatedGasLimit';
 import { useSwapContext } from './swap-provider';
+import { useUserAssetsStore } from '@/state/assets/userAssets';
+import { getUniqueId } from '@/utils/ethereumUtils';
+import { useSwapsStore } from '@/state/swaps/swapsStore';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const BUFFER_RATIO = 0.5;
 
@@ -79,10 +82,23 @@ export const SyncQuoteSharedValuesToState = () => {
   return null;
 };
 
+const isFeeNaNWorklet = (value: string | undefined) => {
+  'worklet';
+
+  return isNaN(Number(value)) || typeof value === 'undefined';
+};
+
 export function calculateGasFeeWorklet(gasSettings: GasSettings, gasLimit: string) {
   'worklet';
-  const amount = gasSettings.isEIP1559 ? sumWorklet(gasSettings.maxBaseFee, gasSettings.maxPriorityFee || '0') : gasSettings.gasPrice;
-  return mulWorklet(gasLimit, amount);
+
+  if (gasSettings.isEIP1559) {
+    const maxBaseFee = isFeeNaNWorklet(gasSettings.maxBaseFee) ? '0' : gasSettings.maxBaseFee;
+    const maxPriorityFee = isFeeNaNWorklet(gasSettings.maxPriorityFee) ? '0' : gasSettings.maxPriorityFee;
+    return mulWorklet(gasLimit, sumWorklet(maxBaseFee, maxPriorityFee));
+  }
+
+  const gasPrice = isFeeNaNWorklet(gasSettings.gasPrice) ? '0' : gasSettings.gasPrice;
+  return mulWorklet(gasLimit, gasPrice);
 }
 
 export function formatUnitsWorklet(value: string, decimals: number) {
@@ -120,12 +136,21 @@ const getHasEnoughFundsForGasWorklet = ({
 
 export function SyncGasStateToSharedValues() {
   const { hasEnoughFundsForGas, internalSelectedInputAsset } = useSwapContext();
+  const preferredNetwork = useSwapsStore(s => s.preferredNetwork);
 
-  const initialChainId = useMemo(() => internalSelectedInputAsset.value?.chainId || ChainId.mainnet, [internalSelectedInputAsset]);
+  const initialChainId = useMemo(
+    () => internalSelectedInputAsset.value?.chainId || preferredNetwork || ChainId.mainnet,
+    [internalSelectedInputAsset, preferredNetwork]
+  );
   const { assetToSell, chainId = initialChainId, quote } = useSyncedSwapQuoteStore();
 
   const gasSettings = useSelectedGas(chainId);
-  const { data: userNativeNetworkAsset, isLoading: isLoadingNativeNetworkAsset } = useUserNativeNetworkAsset(chainId);
+
+  const { address: nativeCurrencyAddress } = useBackendNetworksStore.getState().getChainsNativeAsset()[chainId];
+
+  const isLoadingNativeNetworkAsset = useUserAssetsStore(state => state.isLoadingUserAssets);
+  const userNativeNetworkAsset = useUserAssetsStore(state => state.getLegacyUserAsset(getUniqueId(nativeCurrencyAddress, chainId)));
+
   const { data: estimatedGasLimit } = useSwapEstimatedGasLimit({ chainId, assetToSell, quote });
 
   const gasFeeRange = useSharedValue<[string, string] | null>(null);
@@ -166,12 +191,23 @@ export function SyncGasStateToSharedValues() {
       hasEnoughFundsForGas.value = undefined;
       if (!gasSettings || !estimatedGasLimit || !quote || 'error' in quote || isLoadingNativeNetworkAsset) return;
 
+      // NOTE: if we don't have a gas price or max base fee or max priority fee, we can't calculate the gas fee
+      if (
+        (gasSettings.isEIP1559 && !(gasSettings.maxBaseFee || gasSettings.maxPriorityFee)) ||
+        (!gasSettings.isEIP1559 && !gasSettings.gasPrice)
+      ) {
+        return;
+      }
+
       if (!userNativeNetworkAsset) {
         hasEnoughFundsForGas.value = false;
         return;
       }
 
       const gasFee = calculateGasFeeWorklet(gasSettings, estimatedGasLimit);
+      if (isNaN(Number(gasFee))) {
+        return;
+      }
 
       const nativeGasFee = divWorklet(gasFee, powWorklet(10, userNativeNetworkAsset.decimals));
 

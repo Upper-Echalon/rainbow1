@@ -1,4 +1,4 @@
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 import { SearchAsset } from '@/__swaps__/types/search';
 import { RainbowError, logger } from '@/logger';
 import { RainbowFetchClient } from '@/rainbow-fetch';
@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { parseTokenSearch } from './utils';
 
 const tokenSearchHttp = new RainbowFetchClient({
-  baseURL: 'https://token-search.rainbow.me/v3/discovery',
+  baseURL: 'https://token-search.rainbow.me/v3/trending/swaps',
   headers: {
     'Accept': 'application/json',
     'Content-Type': 'application/json',

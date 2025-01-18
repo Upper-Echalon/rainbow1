@@ -4,8 +4,8 @@ import { RainbowError, logger } from '@/logger';
 import { metadataPOSTClient } from '@/graphql';
 import { TransactionErrorType, TransactionScanResultType, TransactionSimulationResult } from '@/graphql/__generated__/metadataPOST';
 import { isNil } from 'lodash';
-import { RequestData } from '@/redux/requests';
-import { ChainId } from '@/networks/types';
+import { RequestData } from '@/walletConnect/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 type SimulationArgs = {
   address: string;

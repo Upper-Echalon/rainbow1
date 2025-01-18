@@ -1,14 +1,15 @@
 import { Address } from 'viem';
 
 import { staleBalancesStore } from '.';
-import { DAI_ADDRESS, OP_ADDRESS } from '@/references';
+import { DAI_ADDRESS } from '@/references';
 import { ETH_ADDRESS } from '@rainbow-me/swaps';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 const TEST_ADDRESS_1 = '0xFOO';
 const TEST_ADDRESS_2 = '0xBAR';
 const THEN = Date.now() - 700000;
 const WHEN = Date.now() + 60000;
+const OP_ADDRESS = '0x4200000000000000000000000000000000000042';
 
 test('should be able to add asset information to the staleBalances object', async () => {
   const { addStaleBalance, staleBalances } = staleBalancesStore.getState();

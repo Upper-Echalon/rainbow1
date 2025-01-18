@@ -2,11 +2,11 @@ import * as i18n from '@/languages';
 import React, { PropsWithChildren, ReactNode, useMemo } from 'react';
 import Animated, { runOnJS, useAnimatedReaction, useAnimatedStyle, withDelay, withSpring } from 'react-native-reanimated';
 
-import { MIN_FLASHBOTS_PRIORITY_FEE, THICK_BORDER_WIDTH } from '@/__swaps__/screens/Swap/constants';
+import { THICK_BORDER_WIDTH } from '@/__swaps__/screens/Swap/constants';
 import { NavigationSteps, useSwapContext } from '@/__swaps__/screens/Swap/providers/swap-provider';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 import { GasSpeed } from '@/__swaps__/types/gas';
-import { gweiToWei, weiToGwei } from '@/__swaps__/utils/ethereum';
+import { gweiToWei, weiToGwei } from '@/parsers';
 import {
   getCachedCurrentBaseFee,
   getSelectedSpeedSuggestion,
@@ -16,13 +16,12 @@ import {
   useMeteorologySuggestion,
   useMeteorologySuggestions,
 } from '@/__swaps__/utils/meteorology';
-import { add, formatNumber, greaterThan, multiply, subtract } from '@/__swaps__/utils/numbers';
+import { add, greaterThan, multiply, subtract, lessThan, formatNumber } from '@/helpers/utilities';
 import { opacity } from '@/__swaps__/utils/swaps';
 import { ButtonPressAnimation } from '@/components/animations';
 import { SPRING_CONFIGS } from '@/components/animations/animationConfigs';
 import { Bleed, Box, Inline, Separator, Stack, Text, globalColors, useColorMode, useForegroundColor } from '@/design-system';
 import { IS_ANDROID } from '@/env';
-import { lessThan } from '@/helpers/utilities';
 import { useNavigation } from '@/navigation';
 import Routes from '@/navigation/routesNames';
 import { createRainbowStore } from '@/state/internal/createRainbowStore';
@@ -238,7 +237,6 @@ function useGasPanelState<
     speed,
     select,
     enabled: !editedSetting,
-    notifyOnChangeProps: !editedSetting && speed !== 'custom' ? ['data'] : [],
   });
 
   if (editedSetting) return editedSetting;
@@ -320,10 +318,6 @@ function EditMaxBaseFee() {
 
 function EditPriorityFee() {
   const { navigate } = useNavigation();
-
-  const isFlashbotsEnabled = useSwapsStore(s => s.flashbots);
-  const min = isFlashbotsEnabled ? MIN_FLASHBOTS_PRIORITY_FEE : '0';
-
   const maxPriorityFee = useGasPanelState('maxPriorityFee');
 
   return (
@@ -331,7 +325,7 @@ function EditPriorityFee() {
       <PressableLabel onPress={() => navigate(Routes.EXPLAIN_SHEET, { type: MINER_TIP_TYPE })}>
         {i18n.t(i18n.l.gas.miner_tip)}
       </PressableLabel>
-      <GasSettingInput value={maxPriorityFee} onChange={maxPriorityFee => setGasPanelState({ maxPriorityFee })} min={min} />
+      <GasSettingInput value={maxPriorityFee} onChange={maxPriorityFee => setGasPanelState({ maxPriorityFee })} min={'0'} />
     </Inline>
   );
 }

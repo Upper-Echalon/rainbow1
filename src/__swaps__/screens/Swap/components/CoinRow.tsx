@@ -1,34 +1,27 @@
 import { BalancePill } from '@/__swaps__/screens/Swap/components/BalancePill';
 import { CoinRowButton } from '@/__swaps__/screens/Swap/components/CoinRowButton';
-import { AddressOrEth, ParsedSearchAsset } from '@/__swaps__/types/assets';
-import { ChainId } from '@/networks/types';
+import { AddressOrEth, ParsedSearchAsset, UniqueId } from '@/__swaps__/types/assets';
+import { ChainId } from '@/state/backendNetworks/types';
 import { SearchAsset } from '@/__swaps__/types/search';
 import { ButtonPressAnimation } from '@/components/animations';
 import { ContextMenuButton } from '@/components/context-menu';
 import { Box, Column, Columns, HitSlop, Inline, Text } from '@/design-system';
 import { setClipboard } from '@/hooks/useClipboard';
 import * as i18n from '@/languages';
-import { RainbowNetworkObjects } from '@/networks';
-import { BASE_DEGEN_ADDRESS, DEGEN_CHAIN_DEGEN_ADDRESS, ETH_ADDRESS } from '@/references';
+import { ETH_ADDRESS } from '@/references';
 import { toggleFavorite } from '@/resources/favorites';
-import { userAssetsStore } from '@/state/assets/userAssets';
+import { useUserAssetsStore } from '@/state/assets/userAssets';
 import { ethereumUtils, haptics, showActionSheetWithOptions } from '@/utils';
 import { startCase } from 'lodash';
 import React, { useCallback, useMemo } from 'react';
 import { GestureResponderEvent } from 'react-native';
 import { OnPressMenuItemEventObject } from 'react-native-ios-context-menu';
-import { SwapCoinIcon } from './SwapCoinIcon';
+import RainbowCoinIcon from '@/components/coin-icon/RainbowCoinIcon';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 export const COIN_ROW_WITH_PADDING_HEIGHT = 56;
 
 function determineFavoriteAddressAndChain(address: AddressOrEth, mainnetAddress: AddressOrEth | undefined, chainId: ChainId | undefined) {
-  if (address === BASE_DEGEN_ADDRESS && chainId === ChainId.base) {
-    return {
-      addressToFetch: DEGEN_CHAIN_DEGEN_ADDRESS,
-      chainToFetchOn: ChainId.degen,
-    };
-  }
-
   // if no mainnet address, default to fetch the favorite for the address we have and chain we have
   if (!mainnetAddress) {
     return {
@@ -51,7 +44,7 @@ interface InputCoinRowProps {
   nativePriceChange?: string;
   onPress: (asset: ParsedSearchAsset | null) => void;
   output?: false | undefined;
-  uniqueId: string;
+  uniqueId: UniqueId;
   testID?: string;
 }
 
@@ -69,7 +62,7 @@ interface OutputCoinRowProps extends PartialAsset {
 type CoinRowProps = InputCoinRowProps | OutputCoinRowProps;
 
 export function CoinRow({ isFavorite, onPress, output, uniqueId, testID, ...assetProps }: CoinRowProps) {
-  const inputAsset = userAssetsStore(state => (output ? undefined : state.getUserAsset(uniqueId)));
+  const inputAsset = useUserAssetsStore(state => (output ? undefined : state.getUserAsset(uniqueId)));
   const outputAsset = output ? (assetProps as PartialAsset) : undefined;
 
   const asset = output ? outputAsset : inputAsset;
@@ -134,14 +127,13 @@ export function CoinRow({ isFavorite, onPress, output, uniqueId, testID, ...asse
                 gap={12}
               >
                 <Box flexDirection="row" gap={10} flexShrink={1} justifyContent="center">
-                  <SwapCoinIcon
-                    iconUrl={icon_url}
-                    address={address}
-                    mainnetAddress={mainnetAddress}
-                    large
+                  <RainbowCoinIcon
+                    size={36}
+                    icon={icon_url}
                     chainId={chainId}
                     symbol={symbol || ''}
                     color={colors?.primary}
+                    chainSize={16}
                   />
                   <Box gap={10} flexShrink={1} justifyContent="center">
                     <Text color="label" size="17pt" weight="semibold" numberOfLines={1} ellipsizeMode="tail">
@@ -185,7 +177,8 @@ export function CoinRow({ isFavorite, onPress, output, uniqueId, testID, ...asse
 }
 
 const InfoButton = ({ address, chainId }: { address: string; chainId: ChainId }) => {
-  const networkObject = RainbowNetworkObjects.find(networkObject => networkObject.id === chainId)?.value;
+  const getSupportedChainIds = useBackendNetworksStore(state => state.getSupportedChainIds);
+  const supportedChain = getSupportedChainIds().includes(chainId);
 
   const handleCopy = useCallback(() => {
     haptics.selection();
@@ -197,7 +190,7 @@ const InfoButton = ({ address, chainId }: { address: string; chainId: ChainId })
       title: i18n.t(i18n.l.exchange.coin_row.copy_contract_address),
       action: handleCopy,
     },
-    ...(networkObject
+    ...(supportedChain
       ? {
           blockExplorer: {
             title: i18n.t(i18n.l.exchange.coin_row.view_on, { blockExplorerName: startCase(ethereumUtils.getBlockExplorer({ chainId })) }),
@@ -217,7 +210,7 @@ const InfoButton = ({ address, chainId }: { address: string; chainId: ChainId })
           iconValue: 'doc.on.doc',
         },
       },
-      ...(networkObject
+      ...(supportedChain
         ? [
             {
               actionKey: 'blockExplorer',
@@ -236,7 +229,7 @@ const InfoButton = ({ address, chainId }: { address: string; chainId: ChainId })
   const handlePressMenuItem = async ({ nativeEvent: { actionKey } }: OnPressMenuItemEventObject) => {
     if (actionKey === 'copyAddress') {
       options.copy.action();
-    } else if (actionKey === 'blockExplorer' && networkObject) {
+    } else if (actionKey === 'blockExplorer' && supportedChain) {
       options.blockExplorer?.action();
     }
   };
@@ -244,14 +237,14 @@ const InfoButton = ({ address, chainId }: { address: string; chainId: ChainId })
   const onPressAndroid = () =>
     showActionSheetWithOptions(
       {
-        options: [options.copy.title, ...(networkObject ? [options.blockExplorer?.title] : [])],
+        options: [options.copy.title, ...(supportedChain ? [options.blockExplorer?.title] : [])],
         showSeparators: true,
       },
       (idx: number) => {
         if (idx === 0) {
           options.copy.action();
         }
-        if (idx === 1 && networkObject) {
+        if (idx === 1 && supportedChain) {
           options.blockExplorer?.action();
         }
       }

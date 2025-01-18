@@ -8,15 +8,15 @@ import { Transaction } from '@ethersproject/transactions';
 import { ChainImage } from '@/components/coin-icon/ChainImage';
 import { SheetActionButton } from '@/components/sheet';
 import { Bleed, Box, Columns, Inline, Inset, Stack, Text, globalColors, useBackgroundColor, useForegroundColor } from '@/design-system';
-import { NewTransaction } from '@/entities';
+import { NewTransaction, TransactionStatus } from '@/entities';
 import { useNavigation } from '@/navigation';
 
 import { useTheme } from '@/theme';
-import { deviceUtils } from '@/utils';
+import { deviceUtils, ethereumUtils } from '@/utils';
 import { PanGestureHandler } from 'react-native-gesture-handler';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { TransactionScanResultType } from '@/graphql/__generated__/metadataPOST';
-import { ChainId } from '@/networks/types';
+import { ChainId, Network } from '@/state/backendNetworks/types';
 import { convertHexToString, delay, greaterThan, omitFlatten } from '@/helpers/utilities';
 
 import { findWalletWithAccount } from '@/helpers/findWalletWithAccount';
@@ -27,7 +27,6 @@ import { ContactAvatar } from '@/components/contacts';
 import { IS_IOS } from '@/env';
 import { estimateGasWithPadding, getProvider, toHex } from '@/handlers/web3';
 import { GasSpeedButton } from '@/components/gas';
-import { getNetworkObject } from '@/networks';
 import { RainbowError, logger } from '@/logger';
 import {
   PERSONAL_SIGN,
@@ -48,7 +47,7 @@ import { isAddress } from '@ethersproject/address';
 import { hexToNumber, isHex } from 'viem';
 import { addNewTransaction } from '@/state/pendingTransactions';
 import { getNextNonce } from '@/state/nonces';
-import { RequestData } from '@/redux/requests';
+import { RequestData } from '@/walletConnect/types';
 import { RequestSource } from '@/utils/requestNavigationHandlers';
 import { event } from '@/analytics/event';
 import { performanceTracking, TimeToSignOperation } from '@/state/performance/performance';
@@ -69,9 +68,10 @@ import { useCalculateGasLimit } from '@/hooks/useCalculateGasLimit';
 import { useTransactionSetup } from '@/hooks/useTransactionSetup';
 import { useHasEnoughBalance } from '@/hooks/useHasEnoughBalance';
 import { useNonceForDisplay } from '@/hooks/useNonceForDisplay';
-import { useProviderSetup } from '@/hooks/useProviderSetup';
 import { useTransactionSubmission } from '@/hooks/useSubmitTransaction';
 import { useConfirmTransaction } from '@/hooks/useConfirmTransaction';
+import { toChecksumAddress } from 'ethereumjs-util';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 type SignTransactionSheetParams = {
   transactionDetails: RequestData;
@@ -104,11 +104,11 @@ export const SignTransactionSheet = () => {
     source,
   } = routeParams;
 
-  console.log({ specifiedAddress });
-
   const addressToUse = specifiedAddress ?? accountAddress;
 
-  const { provider, nativeAsset } = useProviderSetup(chainId, addressToUse);
+  const provider = getProvider({ chainId });
+  const nativeAsset =
+    ethereumUtils.getNetworkNativeAsset({ chainId }) ?? useBackendNetworksStore.getState().getChainsNativeAsset()[chainId];
 
   const isMessageRequest = isMessageDisplayType(transactionDetails.payload.method);
   const isPersonalSignRequest = isPersonalSign(transactionDetails.payload.method);
@@ -136,13 +136,21 @@ export const SignTransactionSheet = () => {
   }, [isMessageRequest, transactionDetails?.displayDetails?.request, nativeAsset]);
 
   const walletBalance = useMemo(() => {
+    if (typeof nativeAsset === 'object' && 'balance' in nativeAsset) {
+      return {
+        amount: nativeAsset?.balance?.amount || 0,
+        display: nativeAsset?.balance?.display || `0 ${nativeAsset?.symbol}`,
+        isLoaded: nativeAsset?.balance?.display !== undefined,
+        symbol: nativeAsset?.symbol || 'ETH',
+      };
+    }
     return {
-      amount: nativeAsset?.balance?.amount || 0,
-      display: nativeAsset?.balance?.display || `0 ${nativeAsset?.symbol}`,
-      isLoaded: nativeAsset?.balance?.display !== undefined,
+      amount: 0,
+      display: `0 ${nativeAsset?.symbol}`,
+      isLoaded: true,
       symbol: nativeAsset?.symbol || 'ETH',
     };
-  }, [nativeAsset?.balance?.amount, nativeAsset?.balance?.display, nativeAsset?.symbol]);
+  }, [nativeAsset]);
 
   const { gasLimit, isValidGas, startPollingGasFees, stopPollingGasFees, updateTxFee, selectedGasFee, gasFeeParamsBySpeed } = useGas();
 
@@ -267,7 +275,7 @@ export const SignTransactionSheet = () => {
     const txPayload = req;
     let { gas } = txPayload;
     const gasLimitFromPayload = txPayload?.gasLimit;
-    if (!chainId) return;
+
     try {
       logger.debug(
         '[SignTransactionSheet]: gas suggested by dapp',
@@ -281,6 +289,9 @@ export const SignTransactionSheet = () => {
       // Estimate the tx with gas limit padding before sending
       const rawGasLimit = await estimateGasWithPadding(txPayload, null, null, provider);
       if (!rawGasLimit) {
+        logger.error(new RainbowError('[SignTransactionSheet]: error estimating gas'), {
+          rawGasLimit,
+        });
         return;
       }
 
@@ -302,7 +313,7 @@ export const SignTransactionSheet = () => {
       logger.error(new RainbowError('[SignTransactionSheet]: error estimating gas'), { error });
     }
     // clean gas prices / fees sent from the dapp
-    const cleanTxPayload = omitFlatten(txPayload, ['gasPrice', 'maxFeePerGas', 'maxPriorityFeePerGas']);
+    const cleanTxPayload = omitFlatten(txPayload, ['gasPrice', 'maxFeePerGas', 'maxPriorityFeePerGas', 'extParams']);
     const gasParams = parseGasParamsForTransaction(selectedGasFee);
     const calculatedGasLimit = gas || gasLimitFromPayload || gasLimit;
 
@@ -322,20 +333,13 @@ export const SignTransactionSheet = () => {
 
     let response = null;
     try {
-      if (!chainId) {
-        return;
-      }
-      const providerToUse = provider || getProvider({ chainId });
-      if (!providerToUse) {
-        return;
-      }
       const existingWallet = await performanceTracking.getState().executeFn({
         fn: loadWallet,
         screen: SCREEN_FOR_REQUEST_SOURCE[source],
         operation: TimeToSignOperation.KeychainRead,
       })({
-        address: accountInfo.address,
-        provider: providerToUse,
+        address: toChecksumAddress(accountInfo.address),
+        provider,
         timeTracking: {
           screen: SCREEN_FOR_REQUEST_SOURCE[source],
           operation: TimeToSignOperation.Authentication,
@@ -354,7 +358,7 @@ export const SignTransactionSheet = () => {
           operation: TimeToSignOperation.BroadcastTransaction,
         })({
           existingWallet,
-          provider: providerToUse,
+          provider,
           transaction: txPayloadUpdated,
         });
       } else {
@@ -364,13 +368,14 @@ export const SignTransactionSheet = () => {
           operation: TimeToSignOperation.SignTransaction,
         })({
           existingWallet,
-          provider: providerToUse,
+          provider,
           transaction: txPayloadUpdated,
         });
       }
     } catch (e) {
       logger.error(new RainbowError(`[SignTransactionSheet]: Error while ${sendInsteadOfSign ? 'sending' : 'signing'} transaction`));
     }
+    const chainsName = useBackendNetworksStore.getState().getChainsName();
 
     if (response?.result) {
       const signResult = response.result as string;
@@ -378,10 +383,10 @@ export const SignTransactionSheet = () => {
       let txSavedInCurrentWallet = false;
       const displayDetails = transactionDetails.displayDetails;
 
-      let txDetails: NewTransaction | null = null;
+      let txDetails: NewTransaction | undefined;
       if (sendInsteadOfSign && sendResult?.hash) {
         txDetails = {
-          status: 'pending',
+          status: TransactionStatus.pending,
           chainId,
           asset: displayDetails?.request?.asset || nativeAsset,
           contract: {
@@ -392,13 +397,14 @@ export const SignTransactionSheet = () => {
           from: displayDetails?.request?.from,
           gasLimit,
           hash: sendResult.hash,
-          network: getNetworkObject({ chainId }).value,
+          network: chainsName[chainId] as Network,
           nonce: sendResult.nonce,
           to: displayDetails?.request?.to,
           value: sendResult.value.toString(),
           type: 'contract_interaction',
           ...gasParams,
         };
+
         if (accountInfo.address?.toLowerCase() === txDetails.from?.toLowerCase()) {
           addNewTransaction({
             transaction: txDetails,
@@ -414,7 +420,7 @@ export const SignTransactionSheet = () => {
         dappName: transactionDetails.dappName,
         dappUrl: transactionDetails.dappUrl,
         isHardwareWallet: accountInfo.isHardwareWallet,
-        network: getNetworkObject({ chainId }).value,
+        network: chainsName[chainId] as Network,
       });
 
       if (!sendInsteadOfSign) {
@@ -428,24 +434,26 @@ export const SignTransactionSheet = () => {
       closeScreen(false);
       // When the tx is sent from a different wallet,
       // we need to switch to that wallet before saving the tx
+      InteractionManager.runAfterInteractions(async () => {
+        if (!txSavedInCurrentWallet && !!txDetails) {
+          if (txDetails?.from) {
+            await switchToWalletWithAddress(txDetails?.from as string);
+          }
 
-      if (!txSavedInCurrentWallet && !isNil(txDetails)) {
-        InteractionManager.runAfterInteractions(async () => {
-          await switchToWalletWithAddress(txDetails?.from as string);
           addNewTransaction({
-            transaction: txDetails as NewTransaction,
+            transaction: txDetails,
             chainId,
             address: txDetails?.from as string,
           });
-        });
-      }
+        }
+      });
     } else {
       logger.error(new RainbowError(`[SignTransactionSheet]: Tx failure - ${formattedDappUrl}`), {
         dappName: transactionDetails?.dappName,
         dappUrl: transactionDetails?.dappUrl,
         formattedDappUrl,
         rpcMethod: req?.method,
-        network: getNetworkObject({ chainId }).value,
+        network: chainsName[chainId] as Network,
       });
       // If the user is using a hardware wallet, we don't want to close the sheet on an error
       if (!accountInfo.isHardwareWallet) {
@@ -478,18 +486,13 @@ export const SignTransactionSheet = () => {
     const message = transactionDetails?.payload?.params.find((p: string) => !isAddress(p));
     let response = null;
 
-    const providerToUse = provider || getProvider({ chainId });
-    if (!providerToUse) {
-      return;
-    }
-
     const existingWallet = await performanceTracking.getState().executeFn({
       fn: loadWallet,
       screen: SCREEN_FOR_REQUEST_SOURCE[source],
       operation: TimeToSignOperation.KeychainRead,
     })({
       address: accountInfo.address,
-      provider: providerToUse,
+      provider,
       timeTracking: {
         screen: SCREEN_FOR_REQUEST_SOURCE[source],
         operation: TimeToSignOperation.Authentication,
@@ -505,7 +508,7 @@ export const SignTransactionSheet = () => {
           fn: signPersonalMessage,
           screen: SCREEN_FOR_REQUEST_SOURCE[source],
           operation: TimeToSignOperation.SignTransaction,
-        })(message, existingWallet);
+        })(message, provider, existingWallet);
         break;
       case SIGN_TYPED_DATA_V4:
       case SIGN_TYPED_DATA:
@@ -513,7 +516,7 @@ export const SignTransactionSheet = () => {
           fn: signTypedDataMessage,
           screen: SCREEN_FOR_REQUEST_SOURCE[source],
           operation: TimeToSignOperation.SignTransaction,
-        })(message, existingWallet);
+        })(message, provider, existingWallet);
         break;
       default:
         break;
@@ -526,7 +529,7 @@ export const SignTransactionSheet = () => {
         dappName: transactionDetails?.dappName,
         dappUrl: transactionDetails?.dappUrl,
         isHardwareWallet: accountInfo.isHardwareWallet,
-        network: getNetworkObject({ chainId }).value,
+        network: useBackendNetworksStore.getState().getChainsName()[chainId] as Network,
       });
       onSuccessCallback?.(response.result);
 
@@ -539,10 +542,11 @@ export const SignTransactionSheet = () => {
     transactionDetails?.payload?.method,
     transactionDetails?.dappName,
     transactionDetails?.dappUrl,
+    provider,
     chainId,
+    source,
     accountInfo.address,
     accountInfo.isHardwareWallet,
-    source,
     onSuccessCallback,
     closeScreen,
     onCancel,
@@ -556,18 +560,54 @@ export const SignTransactionSheet = () => {
     handleConfirmTransaction,
   });
 
-  const { submitFn } = useTransactionSubmission({
+  const { submitFn, isAuthorizing } = useTransactionSubmission({
+    isMessageRequest,
     isBalanceEnough,
     accountInfo,
     onConfirm,
     source,
   });
 
+  const canPressConfirm = useMemo(() => {
+    if (isMessageRequest) {
+      return !isAuthorizing; // Only check authorization state for message requests
+    }
+
+    return !isAuthorizing && isBalanceEnough && !!chainId && !!selectedGasFee?.gasFee?.estimatedFee;
+  }, [isAuthorizing, isMessageRequest, isBalanceEnough, chainId, selectedGasFee?.gasFee?.estimatedFee]);
+
+  const primaryActionButtonLabel = useMemo(() => {
+    if (isAuthorizing) {
+      return i18n.t(i18n.l.walletconnect.simulation.buttons.confirming);
+    }
+
+    if (!txSimulationLoading && isBalanceEnough === false) {
+      return i18n.t(i18n.l.walletconnect.simulation.buttons.buy_native_token, { symbol: nativeAsset.symbol });
+    }
+
+    return i18n.t(i18n.l.walletconnect.simulation.buttons.confirm);
+  }, [isAuthorizing, txSimulationLoading, isBalanceEnough, nativeAsset.symbol]);
+
+  const primaryActionButtonColor = useMemo(() => {
+    let color = colors.appleBlue;
+
+    if (
+      simulationResult?.simulationError ||
+      (simulationResult?.simulationScanResult && simulationResult.simulationScanResult !== TransactionScanResultType.Ok)
+    ) {
+      if (simulationResult?.simulationScanResult === TransactionScanResultType.Warning) {
+        color = colors.orange;
+      } else {
+        color = colors.red;
+      }
+    }
+
+    return colors.alpha(color, canPressConfirm ? 1 : 0.6);
+  }, [colors, simulationResult?.simulationError, simulationResult?.simulationScanResult, canPressConfirm]);
+
   const onPressCancel = useCallback(() => onCancel(), [onCancel]);
 
   const expandedCardBottomInset = EXPANDED_CARD_BOTTOM_INSET + (isMessageRequest ? 0 : GAS_BUTTON_SPACE);
-
-  const canPressConfirm = isMessageRequest || (!!walletBalance?.isLoaded && !!chainId && !!selectedGasFee?.gasFee?.estimatedFee);
 
   return (
     <PanGestureHandler enabled={IS_IOS}>
@@ -650,7 +690,7 @@ export const SignTransactionSheet = () => {
                     simulation={simulationResult?.simulationData}
                     simulationError={simulationResult?.simulationError}
                     simulationScanResult={simulationResult?.simulationScanResult}
-                    walletBalance={walletBalance}
+                    nativeAsset={nativeAsset}
                   />
                   {isMessageRequest ? (
                     <TransactionMessageCard
@@ -709,11 +749,11 @@ export const SignTransactionSheet = () => {
                                 <MotiView animate={{ opacity: 1 }} from={{ opacity: 0 }} transition={{ opacity: motiTimingConfig }}>
                                   <Inline alignVertical="center" space={{ custom: 5 }} wrap={false}>
                                     <Bleed vertical="4px">
-                                      <ChainImage chainId={chainId} size={12} />
+                                      <ChainImage chainId={chainId} size={12} position="relative" />
                                     </Bleed>
                                     <Text color="labelQuaternary" size="13pt" weight="semibold">
                                       {`${walletBalance?.display} ${i18n.t(i18n.l.walletconnect.simulation.profile_section.on_network, {
-                                        network: getNetworkObject({ chainId })?.name,
+                                        network: useBackendNetworksStore.getState().getChainsName()[chainId],
                                       })}`}
                                     </Text>
                                   </Inline>
@@ -738,24 +778,13 @@ export const SignTransactionSheet = () => {
                     weight="bold"
                   />
                   <SheetActionButton
-                    label={
-                      !txSimulationLoading && isBalanceEnough === false
-                        ? i18n.t(i18n.l.walletconnect.simulation.buttons.buy_native_token, { symbol: walletBalance?.symbol })
-                        : i18n.t(i18n.l.walletconnect.simulation.buttons.confirm)
-                    }
+                    label={primaryActionButtonLabel}
                     newShadows
                     onPress={submitFn}
                     disabled={!canPressConfirm}
                     size="big"
                     weight="heavy"
-                    color={
-                      simulationResult?.simulationError ||
-                      (simulationResult?.simulationScanResult && simulationResult?.simulationScanResult !== TransactionScanResultType.Ok)
-                        ? simulationResult?.simulationScanResult === TransactionScanResultType.Warning
-                          ? 'orange'
-                          : colors.red
-                        : undefined
-                    }
+                    color={primaryActionButtonColor}
                   />
                 </Columns>
               </Box>
@@ -787,12 +816,7 @@ export const SignTransactionSheet = () => {
                   chainId={chainId}
                   theme={'dark'}
                   marginBottom={0}
-                  asset={undefined}
                   fallbackColor={simulationResult?.simulationError ? colors.red : undefined}
-                  testID={undefined}
-                  showGasOptions={undefined}
-                  validateGasParams={undefined}
-                  crossChainServiceTime={undefined}
                 />
               </Box>
             )}

@@ -1,11 +1,10 @@
-import { ExtendedAnimatedAssetWithColors, UniqueId } from './assets';
-import { SearchAsset } from './search';
+import { ExtendedAnimatedAssetWithColors } from './assets';
 
 export type inputKeys = 'inputAmount' | 'inputNativeValue' | 'outputAmount' | 'outputNativeValue';
 export type inputMethods = inputKeys | 'slider';
 export type inputValuesType = { [key in inputKeys]: number | string };
 
-export type settingsKeys = 'swapFee' | 'slippage' | 'flashbots';
+export type settingsKeys = 'swapFee' | 'slippage';
 
 export enum SortMethod {
   token = 'token',

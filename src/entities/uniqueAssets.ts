@@ -1,4 +1,4 @@
-import { Network, ChainId } from '@/networks/types';
+import { ChainId, Network } from '@/state/backendNetworks/types';
 import { AssetContract, AssetType } from '.';
 
 interface UniqueAssetLastSale {

@@ -4,9 +4,8 @@ import { Image, PixelRatio } from 'react-native';
 
 import { Bleed, Box, Inline, Text } from '@/design-system';
 
-import { useTheme } from '@/theme';
 import { TransactionAssetType, TransactionSimulationAsset } from '@/graphql/__generated__/metadataPOST';
-import { Network } from '@/networks/types';
+import { Network } from '@/state/backendNetworks/types';
 import { convertAmountToNativeDisplay, convertRawAmountToBalance } from '@/helpers/utilities';
 
 import { useAccountSettings } from '@/hooks';
@@ -17,7 +16,7 @@ import { useExternalToken } from '@/resources/assets/externalAssetsQuery';
 import { EventInfo, EventType } from '@/components/Transactions/types';
 import { infoForEventType, CARD_ROW_HEIGHT } from '@/components/Transactions/constants';
 import { EventIcon } from '@/components/Transactions/TransactionIcons';
-import { ethereumUtils } from '@/utils';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 type TransactionSimulatedEventRowProps = {
   amount: string | 'unlimited';
@@ -27,10 +26,9 @@ type TransactionSimulatedEventRowProps = {
 };
 
 export const TransactionSimulatedEventRow = ({ amount, asset, eventType, price }: TransactionSimulatedEventRowProps) => {
-  const theme = useTheme();
   const { nativeCurrency } = useAccountSettings();
 
-  const chainId = ethereumUtils.getChainIdFromNetwork((asset?.network as Network) || Network.mainnet);
+  const chainId = useBackendNetworksStore.getState().getChainsIdByName()[asset?.network as Network];
 
   const { data: externalAsset } = useExternalToken({
     address: asset?.assetCode || '',
@@ -91,9 +89,8 @@ export const TransactionSimulatedEventRow = ({ amount, asset, eventType, price }
                 icon={externalAsset?.icon_url}
                 chainId={chainId}
                 symbol={externalAsset?.symbol || ''}
-                theme={theme}
-                colors={externalAsset?.colors}
-                ignoreBadge
+                color={externalAsset?.colors?.primary || externalAsset?.colors?.fallback || undefined}
+                showBadge={false}
               />
             ) : (
               <Image source={{ uri: url }} style={{ borderRadius: 4.5, height: 16, width: 16 }} />

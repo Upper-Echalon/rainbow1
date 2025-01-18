@@ -1,15 +1,14 @@
-import { NativeCurrencyKey, RainbowTransaction } from '@/entities';
+import { NativeCurrencyKey, RainbowTransaction, TransactionApiResponse } from '@/entities';
 import { createQueryKey, queryClient, QueryFunctionArgs, QueryFunctionResult } from '@/react-query';
 import { useQuery } from '@tanstack/react-query';
 import { consolidatedTransactionsQueryFunction, consolidatedTransactionsQueryKey } from './consolidatedTransactions';
 import { useAccountSettings } from '@/hooks';
-import { RainbowNetworkObjects } from '@/networks';
 import { rainbowFetch } from '@/rainbow-fetch';
 import { ADDYS_API_KEY } from 'react-native-dotenv';
 import { parseTransaction } from '@/parsers/transactions';
 import { RainbowError, logger } from '@/logger';
-import { TransactionApiResponse } from './types';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 export type ConsolidatedTransactionsResult = QueryFunctionResult<typeof consolidatedTransactionsQueryFunction>;
 export type PaginatedTransactions = { pages: ConsolidatedTransactionsResult[] };
@@ -20,8 +19,6 @@ export type TransactionArgs = {
   currency: NativeCurrencyKey;
   chainId: ChainId;
 };
-
-type TransactionQueryKey = ReturnType<typeof transactionQueryKey>;
 
 export type BackendTransactionArgs = {
   hash: string;
@@ -48,8 +45,8 @@ export const fetchTransaction = async ({
       },
     });
 
-    const tx = response?.data?.payload?.transaction || {};
-    if (!tx) {
+    const tx = response?.data?.payload?.transaction;
+    if (!tx || !tx?.status || (tx?.status as string) === '') {
       return null;
     }
     const parsedTx = await parseTransaction(tx, currency, chainId);
@@ -81,12 +78,10 @@ export const transactionFetchQuery = async ({
 export function useBackendTransaction({ hash, chainId }: BackendTransactionArgs) {
   const { accountAddress, nativeCurrency } = useAccountSettings();
 
-  const chainIds = RainbowNetworkObjects.filter(network => network.enabled && network.networkType !== 'testnet').map(network => network.id);
-
   const paginatedTransactionsKey = consolidatedTransactionsQueryKey({
     address: accountAddress,
     currency: nativeCurrency,
-    chainIds,
+    chainIds: useBackendNetworksStore.getState().getSupportedMainnetChainIds(),
   });
 
   const params: TransactionArgs = {

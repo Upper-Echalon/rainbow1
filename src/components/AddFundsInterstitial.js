@@ -7,9 +7,9 @@ import showWalletErrorAlert from '../helpers/support';
 import { useNavigation } from '../navigation/Navigation';
 import { useTheme } from '../theme/ThemeContext';
 import { deviceUtils, magicMemo } from '../utils';
-import Divider from './Divider';
-import { ButtonPressAnimation, ScaleButtonZoomableAndroid } from './animations';
-import { Icon } from './icons';
+import Divider from '@/components/Divider';
+import { ButtonPressAnimation, ScaleButtonZoomableAndroid } from '@/components/animations';
+import { Icon } from '@/components/icons';
 import { Centered, Row, RowWithMargins } from './layout';
 import { Text } from './text';
 import { analyticsV2 } from '@/analytics';
@@ -19,7 +19,7 @@ import styled from '@/styled-thing';
 import { padding, position } from '@/styles';
 import ShadowStack from '@/react-native-shadow-stack';
 import { useRoute } from '@react-navigation/native';
-import { Network } from '@/networks/types';
+import { Network } from '@/state/backendNetworks/types';
 
 const ContainerWidth = 261;
 

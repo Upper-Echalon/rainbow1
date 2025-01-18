@@ -1,20 +1,20 @@
+import { useMemo } from 'react';
 import { AddressOrEth, UniqueId } from '@/__swaps__/types/assets';
-import { ChainId, Network } from '@/networks/types';
-import { getStandardizedUniqueIdWorklet } from '@/__swaps__/utils/swaps';
+import { ChainId, Network } from '@/state/backendNetworks/types';
+import { getUniqueId } from '@/utils/ethereumUtils';
 import { NativeCurrencyKeys, RainbowToken } from '@/entities';
 import { createQueryKey, queryClient } from '@/react-query';
 import { DAI_ADDRESS, ETH_ADDRESS, SOCKS_ADDRESS, WBTC_ADDRESS, WETH_ADDRESS } from '@/references';
 import { promiseUtils } from '@/utils';
-import ethereumUtils from '@/utils/ethereumUtils';
 import { useQuery } from '@tanstack/react-query';
 import { omit } from 'lodash';
 import { externalTokenQueryKey, fetchExternalToken } from './assets/externalAssetsQuery';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
+import { analyticsV2 } from '@/analytics';
 
 export const favoritesQueryKey = createQueryKey('favorites', {}, { persisterVersion: 4 });
 
 const DEFAULT_FAVORITES = [DAI_ADDRESS, ETH_ADDRESS, SOCKS_ADDRESS, WBTC_ADDRESS];
-
-const getUniqueId = (address: AddressOrEth, chainId: ChainId) => getStandardizedUniqueIdWorklet({ address, chainId });
 
 /**
  * Returns a map of the given `addresses` to their corresponding `RainbowToken` metadata.
@@ -22,7 +22,7 @@ const getUniqueId = (address: AddressOrEth, chainId: ChainId) => getStandardized
 async function fetchMetadata(addresses: string[], chainId = ChainId.mainnet) {
   const favoritesMetadata: Record<UniqueId, RainbowToken> = {};
   const newFavoritesMeta: Record<UniqueId, RainbowToken> = {};
-  const network = ethereumUtils.getNetworkFromChainId(chainId);
+  const network = useBackendNetworksStore.getState().getChainsName()[chainId];
 
   // Map addresses to an array of promises returned by fetchExternalToken
   const fetchPromises: Promise<void>[] = addresses.map(async address => {
@@ -86,16 +86,18 @@ export async function refreshFavorites() {
 
   const favoritesByNetwork = Object.values(favorites).reduce(
     (favoritesByChain, token) => {
-      favoritesByChain[token.network] ??= [];
-      favoritesByChain[token.network].push(token.address);
+      favoritesByChain[token.network as Network] ??= [];
+      favoritesByChain[token.network as Network].push(token.address);
       return favoritesByChain;
     },
     {} as Record<Network, string[]>
   );
 
+  const chainsIdByName = useBackendNetworksStore.getState().getChainsIdByName();
+
   const updatedMetadataByNetwork = await Promise.all(
     Object.entries(favoritesByNetwork).map(async ([network, networkFavorites]) =>
-      fetchMetadata(networkFavorites, ethereumUtils.getChainIdFromNetwork(network as Network))
+      fetchMetadata(networkFavorites, chainsIdByName[network as Network])
     )
   );
 
@@ -123,6 +125,13 @@ export async function toggleFavorite(address: string, chainId = ChainId.mainnet)
     queryClient.setQueryData(favoritesQueryKey, omit(favorites, uniqueId));
   } else {
     const metadata = await fetchMetadata([lowercasedAddress], chainId);
+    analyticsV2.track(analyticsV2.event.addFavoriteToken, {
+      address: lowercasedAddress,
+      chainId,
+      name: metadata[uniqueId].name,
+      symbol: metadata[uniqueId].symbol,
+    });
+
     queryClient.setQueryData(favoritesQueryKey, { ...favorites, ...metadata });
   }
 }
@@ -153,8 +162,10 @@ export function useFavorites(): {
     cacheTime: Infinity,
   });
 
-  const favoritesMetadata = query.data ?? {};
-  const favorites = Object.keys(favoritesMetadata);
+  const [favoritesMetadata, favorites] = useMemo(() => {
+    const favoritesMetadata = query.data ?? {};
+    return [favoritesMetadata, Object.keys(favoritesMetadata)];
+  }, [query.data]);
 
   return {
     favorites,

@@ -3,17 +3,15 @@ import React, { useEffect, useState } from 'react';
 import { getTimeElapsedFromDate } from '../utils';
 import { Bleed, Box, Cover, Inline, Inset, Stack, Text, useForegroundColor } from '@/design-system';
 import { abbreviateNumber, convertRawAmountToRoundedDecimal } from '@/helpers/utilities';
-import { getNetworkObject } from '@/networks';
 import { ButtonPressAnimation } from '@/components/animations';
 import { Placeholder, RecentMintCell } from './RecentMintCell';
 import { View } from 'react-native';
 import { useTheme } from '@/theme';
 import { analyticsV2 } from '@/analytics';
 import * as i18n from '@/languages';
-import ChainBadge from '@/components/coin-icon/ChainBadge';
+import { ChainImage } from '@/components/coin-icon/ChainImage';
 import { navigateToMintCollection } from '@/resources/reservoir/mints';
-import { EthCoinIcon } from '@/components/coin-icon/EthCoinIcon';
-import { ChainId } from '@/networks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 export const NUM_NFTS = 3;
 
@@ -28,7 +26,7 @@ export function Card({ collection }: { collection: MintableCollection }) {
   const separatorTertiary = useForegroundColor('separatorTertiary');
 
   const price = convertRawAmountToRoundedDecimal(collection.mintStatus.price, 18, 6);
-  const currencySymbol = getNetworkObject({ chainId: collection.chainId }).nativeCurrency.symbol;
+  const currencySymbol = useBackendNetworksStore.getState().getChainsNativeAsset()[collection.chainId].symbol;
   const isFree = !price;
 
   // update elapsed time every minute if it's less than an hour
@@ -53,11 +51,7 @@ export function Card({ collection }: { collection: MintableCollection }) {
             </Inset>
             <Cover alignVertical="top" alignHorizontal="right">
               <Bleed vertical="3px">
-                {collection.chainId !== ChainId.mainnet ? (
-                  <ChainBadge chainId={collection.chainId} position="relative" size="medium" />
-                ) : (
-                  <EthCoinIcon size={20} />
-                )}
+                <ChainImage chainId={collection.chainId} position="relative" size={20} />
               </Bleed>
             </Cover>
           </Box>

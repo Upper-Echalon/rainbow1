@@ -1,8 +1,8 @@
 import React, { useCallback, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { CoinIconIndicator } from '../../../../components/coin-icon';
-import { Icon } from '../../../../components/icons';
-import { ButtonPressAnimation } from '../../../animations';
+import { CoinIconIndicator } from '@/components/coin-icon';
+import { Icon } from '@/components/icons';
+import { ButtonPressAnimation } from '@/components/animations';
 
 import { ExtendedState } from '../core/RawRecyclerList';
 
@@ -11,9 +11,8 @@ import { useAccountAsset, useCoinListFinishEditingOptions } from '@/hooks';
 import Routes from '@/navigation/routesNames';
 import { borders, colors, padding, shadow } from '@/styles';
 import RainbowCoinIcon from '@/components/coin-icon/RainbowCoinIcon';
-import { ethereumUtils } from '@/utils';
 import { NativeCurrencyKey } from '@/entities';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 
 interface CoinCheckButtonProps {
   isHidden: boolean;
@@ -101,12 +100,10 @@ const MemoizedBalanceCoinRow = React.memo(
           <View style={[sx.container]}>
             <View style={sx.iconContainer}>
               <RainbowCoinIcon
-                size={40}
                 icon={item?.icon_url}
                 chainId={chainId}
                 symbol={item?.symbol || ''}
-                theme={theme}
-                colors={item?.colors}
+                color={item?.colors?.primary || item?.colors?.fallback || undefined}
               />
             </View>
 
@@ -145,7 +142,7 @@ const MemoizedBalanceCoinRow = React.memo(
 MemoizedBalanceCoinRow.displayName = 'MemoizedBalanceCoinRow';
 
 export default React.memo(function BalanceCoinRow({ uniqueId, extendedState }: { uniqueId: string; extendedState: ExtendedState }) {
-  const { theme, nativeCurrencySymbol, navigate, nativeCurrency, hiddenCoins, pinnedCoins, toggleSelectedCoin, isCoinListEdited } =
+  const { theme, nativeCurrencySymbol, navigate, nativeCurrency, hiddenAssets, pinnedCoins, toggleSelectedCoin, isCoinListEdited } =
     extendedState;
 
   const onPress = useCallback(() => {
@@ -157,7 +154,7 @@ export default React.memo(function BalanceCoinRow({ uniqueId, extendedState }: {
   const maybeCallback = useRef<null | (() => void)>(null);
   maybeCallback.current = isCoinListEdited ? onPress : null;
 
-  const isHidden = hiddenCoins[uniqueId];
+  const isHidden = hiddenAssets.has(uniqueId);
   const isPinned = pinnedCoins[uniqueId];
 
   return (

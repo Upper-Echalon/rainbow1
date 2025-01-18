@@ -1,38 +1,36 @@
-import { Address } from 'viem';
+import { memo } from 'react';
 import { useAccountSettings } from '@/hooks';
 import { userAssetsStore } from '@/state/assets/userAssets';
 import { useSwapsStore } from '@/state/swaps/swapsStore';
 import { selectUserAssetsList, selectorFilterByUserChains } from '@/__swaps__/screens/Swap/resources/_selectors/assets';
 import { ParsedSearchAsset } from '@/__swaps__/types/assets';
 import { useUserAssets } from '@/__swaps__/screens/Swap/resources/assets';
-import { ChainId } from '@/networks/types';
-import { useConnectedToHardhatStore } from '../connectedToHardhat';
+import { ChainId } from '@/state/backendNetworks/types';
+import { IS_TEST } from '@/env';
 
-export const UserAssetsSync = function UserAssetsSync() {
-  const { accountAddress: currentAddress, nativeCurrency: currentCurrency } = useAccountSettings();
-
-  const userAssetsWalletAddress = userAssetsStore(state => state.associatedWalletAddress);
+function UserAssetsSyncComponent() {
+  const { accountAddress, nativeCurrency: currentCurrency } = useAccountSettings();
   const isSwapsOpen = useSwapsStore(state => state.isSwapsOpen);
-  const { connectedToHardhat } = useConnectedToHardhatStore();
+  const isUserAssetsStoreMissingData = userAssetsStore.getState().getUserAssets()?.length === 0;
+  const enabled = (!isSwapsOpen || isUserAssetsStoreMissingData) && !!accountAddress && !!currentCurrency;
 
   useUserAssets(
     {
-      address: currentAddress as Address,
+      address: accountAddress,
       currency: currentCurrency,
-      testnetMode: connectedToHardhat,
     },
     {
-      enabled: !isSwapsOpen || userAssetsWalletAddress !== currentAddress,
+      enabled,
       select: data =>
         selectorFilterByUserChains({
           data,
           selector: selectUserAssetsList,
         }),
       onSuccess: data => {
-        if (!isSwapsOpen || userAssetsWalletAddress !== currentAddress) {
-          userAssetsStore.getState().setUserAssets(currentAddress as Address, data as ParsedSearchAsset[]);
+        if (!isSwapsOpen || isUserAssetsStoreMissingData) {
+          userAssetsStore.getState().setUserAssets(data as ParsedSearchAsset[]);
 
-          const inputAsset = userAssetsStore.getState().getHighestValueEth();
+          const inputAsset = userAssetsStore.getState().getHighestValueNativeAsset();
           useSwapsStore.setState({
             inputAsset,
             selectedOutputChainId: inputAsset?.chainId ?? ChainId.mainnet,
@@ -43,4 +41,6 @@ export const UserAssetsSync = function UserAssetsSync() {
   );
 
   return null;
-};
+}
+
+export const UserAssetsSync = IS_TEST ? UserAssetsSyncComponent : memo(UserAssetsSyncComponent);

@@ -1,4 +1,4 @@
-import React, { LegacyRef, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import React, { LegacyRef, useCallback, useEffect, useMemo, useRef } from 'react';
 import { LayoutChangeEvent } from 'react-native';
 import { SetterOrUpdater } from 'recoil';
 import { DataProvider, RecyclerListView } from 'recyclerlistview';
@@ -22,8 +22,9 @@ import { remoteCardsStore } from '@/state/remoteCards/remoteCards';
 import { useRoute } from '@react-navigation/native';
 import Routes from '@/navigation/routesNames';
 import { useRemoteConfig } from '@/model/remoteConfig';
-import { useExperimentalFlag } from '@/config';
-import { RainbowContext } from '@/helpers/RainbowContext';
+import { useExperimentalConfig } from '@/config/experimentalHooks';
+import { useUserAssetsStore } from '@/state/assets/userAssets';
+import { UniqueId } from '@/__swaps__/types/assets';
 
 const dataProvider = new DataProvider((r1, r2) => {
   return r1.uid !== r2.uid;
@@ -35,7 +36,7 @@ export type ExtendedState = {
   nativeCurrency: NativeCurrencyKey;
   navigate: any;
   isCoinListEdited: boolean;
-  hiddenCoins: BooleanMap;
+  hiddenAssets: Set<UniqueId>;
   pinnedCoins: BooleanMap;
   toggleSelectedCoin: (id: string) => void;
   setIsCoinListEdited: SetterOrUpdater<boolean>;
@@ -58,10 +59,11 @@ const RawMemoRecyclerAssetList = React.memo(function RawRecyclerAssetList({
   type?: AssetListType;
 }) {
   const remoteConfig = useRemoteConfig();
-  const experimentalConfig = useContext(RainbowContext).config;
+  const experimentalConfig = useExperimentalConfig();
   const currentDataProvider = useMemoOne(() => dataProvider.cloneWithRows(briefSectionsData), [briefSectionsData]);
   const { isCoinListEdited, setIsCoinListEdited } = useCoinListEdited();
   const y = useRecyclerAssetListPosition()!;
+  const hiddenAssets = useUserAssetsStore(state => state.hiddenAssets);
 
   const { name } = useRoute();
   const getCardIdsForScreen = remoteCardsStore(state => state.getCardIdsForScreen);
@@ -79,7 +81,7 @@ const RawMemoRecyclerAssetList = React.memo(function RawRecyclerAssetList({
         remoteConfig,
         experimentalConfig,
       }),
-    [briefSectionsData, isCoinListEdited, cardIds, isReadOnlyWallet, experimentalConfig]
+    [briefSectionsData, isCoinListEdited, cardIds, isReadOnlyWallet, remoteConfig, experimentalConfig]
   );
 
   const { accountAddress } = useAccountSettings();
@@ -130,18 +132,18 @@ const RawMemoRecyclerAssetList = React.memo(function RawRecyclerAssetList({
 
   const theme = useTheme();
   const { nativeCurrencySymbol, nativeCurrency } = useAccountSettings();
-  const { hiddenCoinsObj: hiddenCoins, pinnedCoinsObj: pinnedCoins, toggleSelectedCoin } = useCoinListEditOptions();
+  const { pinnedCoinsObj: pinnedCoins, toggleSelectedCoin } = useCoinListEditOptions();
 
   const { navigate } = useNavigation();
 
   const mergedExtendedState = useMemo<ExtendedState>(() => {
     return {
       ...extendedState,
-      hiddenCoins,
       isCoinListEdited,
       nativeCurrency,
       nativeCurrencySymbol,
       navigate,
+      hiddenAssets,
       pinnedCoins,
       setIsCoinListEdited,
       theme,
@@ -149,15 +151,15 @@ const RawMemoRecyclerAssetList = React.memo(function RawRecyclerAssetList({
     };
   }, [
     extendedState,
-    theme,
-    navigate,
-    nativeCurrencySymbol,
-    nativeCurrency,
-    pinnedCoins,
-    hiddenCoins,
-    toggleSelectedCoin,
     isCoinListEdited,
+    nativeCurrency,
+    nativeCurrencySymbol,
+    navigate,
+    hiddenAssets,
+    pinnedCoins,
     setIsCoinListEdited,
+    theme,
+    toggleSelectedCoin,
   ]);
 
   return (

@@ -3,10 +3,10 @@ import { ChainImage } from '@/components/coin-icon/ChainImage';
 import { ContextMenuButton } from '@/components/context-menu';
 import { Bleed, Box, Inline, Text, TextProps } from '@/design-system';
 import * as i18n from '@/languages';
-import { ChainId, ChainNameDisplay } from '@/networks/types';
+import { useUserAssetsStore } from '@/state/assets/userAssets';
 import { showActionSheetWithOptions } from '@/utils';
-import { userAssetsStore } from '@/state/assets/userAssets';
-import { chainNameForChainIdWithMainnetSubstitution } from '@/__swaps__/utils/chains';
+import { ChainId } from '@/state/backendNetworks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 interface DefaultButtonOptions {
   iconColor?: TextProps['color'];
@@ -49,22 +49,20 @@ export const ChainContextMenu = ({
     textWeight = 'heavy',
   } = defaultButtonOptions;
 
-  const balanceSortedChains = userAssetsStore(state =>
+  const balanceSortedChains = useUserAssetsStore(state =>
     // eslint-disable-next-line no-nested-ternary
     chainsToDisplay ? chainsToDisplay : excludeChainsWithNoBalance ? state.getChainsWithBalance() : state.getBalanceSortedChainList()
   );
 
   const menuConfig = useMemo(() => {
     const chainItems = balanceSortedChains.map(chainId => {
-      const networkName = chainNameForChainIdWithMainnetSubstitution(chainId);
-      const displayName = ChainNameDisplay[chainId];
-
+      const chainName = useBackendNetworksStore.getState().getChainsName()[chainId];
       return {
         actionKey: `${chainId}`,
-        actionTitle: displayName,
+        actionTitle: useBackendNetworksStore.getState().getChainsLabel()[chainId],
         icon: {
           iconType: 'ASSET',
-          iconValue: `${networkName}Badge${chainId === ChainId.mainnet ? '' : 'NoShadow'}`,
+          iconValue: chainId === ChainId.mainnet ? 'ethereumBadge' : `${chainName}BadgeNoShadow`,
         },
       };
     });
@@ -114,7 +112,7 @@ export const ChainContextMenu = ({
 
   const displayName = useMemo(() => {
     if (!selectedChainId) return allNetworksText;
-    const name = ChainNameDisplay[selectedChainId];
+    const name = useBackendNetworksStore.getState().getChainsLabel()[selectedChainId];
     return name.endsWith(' Chain') ? name.slice(0, -6) : name;
   }, [allNetworksText, selectedChainId]);
 
@@ -147,7 +145,7 @@ export const ChainContextMenu = ({
               )}
               {selectedChainId && (
                 <Bleed vertical="4px">
-                  <ChainImage chainId={selectedChainId} size={16} />
+                  <ChainImage chainId={selectedChainId} position="relative" size={16} />
                 </Bleed>
               )}
               <Text color={textColor} numberOfLines={1} size={textSize} weight={textWeight}>

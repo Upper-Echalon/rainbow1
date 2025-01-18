@@ -3,16 +3,14 @@ import { StyleSheet, View } from 'react-native';
 import { ButtonPressAnimation } from '../animations';
 import FastTransactionStatusBadge from './FastTransactionStatusBadge';
 import { Bleed, Box, Inline, Text, globalColors, useForegroundColor } from '@/design-system';
-import { NativeCurrencyKey, RainbowTransaction } from '@/entities';
+import { NativeCurrencyKey, RainbowTransaction, TransactionStatus, TransactionType } from '@/entities';
 import { ThemeContextProps } from '@/theme';
 import { useNavigation } from '@/navigation';
 import Routes from '@rainbow-me/routes';
 import { ImgixImage } from '../images';
 import { CardSize } from '../unique-token/CardSize';
-import { ChainBadge } from '../coin-icon';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
 import { address } from '@/utils/abbreviations';
-import { TransactionType } from '@/resources/transactions/types';
 import {
   convertAmountAndPriceToNativeDisplay,
   convertAmountToBalanceDisplay,
@@ -24,8 +22,9 @@ import {
 import { TwoCoinsIcon } from '../coin-icon/TwoCoinsIcon';
 import Spinner from '../Spinner';
 import * as lang from '@/languages';
-import RainbowCoinIcon from '../coin-icon/RainbowCoinIcon';
-import { checkForPendingSwap } from '@/screens/transaction-details/helpers/checkForPendingSwap';
+import RainbowCoinIcon from '@/components/coin-icon/RainbowCoinIcon';
+import { checkForPendingSwap } from '@/helpers/checkForPendingSwap';
+import { ChainImage } from '../coin-icon/ChainImage';
 
 export const getApprovalLabel = ({ approvalAmount, asset, type }: Pick<RainbowTransaction, 'type' | 'asset' | 'approvalAmount'>) => {
   if (!approvalAmount || !asset) return;
@@ -54,9 +53,12 @@ const swapTypeValues = (changes: RainbowTransaction['changes'], status: RainbowT
 
   // NOTE: For pending txns let's use the change values instead of
   // the transaction balance change since that hasn't happened yet
-  if (status === 'pending') {
-    const valueOut = `${handleSignificantDecimals(convertRawAmountToDecimalFormat(tokenOut?.value?.toString() || '0', tokenOut?.asset.decimals || 18), tokenOut?.asset.decimals || 18)} ${tokenOut?.asset.symbol}`;
-    const valueIn = `+${handleSignificantDecimals(convertRawAmountToDecimalFormat(tokenIn?.value?.toString() || '0', tokenIn?.asset.decimals || 18), tokenIn?.asset.decimals || 18)} ${tokenIn?.asset.symbol}`;
+  if (status === TransactionStatus.pending) {
+    const decimalsOut = typeof tokenOut?.asset.decimals === 'number' ? tokenOut.asset.decimals : 18;
+    const decimalsIn = typeof tokenIn?.asset.decimals === 'number' ? tokenIn.asset.decimals : 18;
+
+    const valueOut = `${handleSignificantDecimals(convertRawAmountToDecimalFormat(tokenOut?.value?.toString() || '0', decimalsOut), decimalsOut)} ${tokenOut?.asset.symbol}`;
+    const valueIn = `+${handleSignificantDecimals(convertRawAmountToDecimalFormat(tokenIn?.value?.toString() || '0', decimalsIn), decimalsIn)} ${tokenIn?.asset.symbol}`;
 
     return [valueOut, valueIn];
   }
@@ -143,8 +145,7 @@ export const ActivityTypeIcon = ({
   transaction: Pick<RainbowTransaction, 'status' | 'type'>;
   color: string;
 }) => {
-  // if (status === 'pending') return null;
-  if (status === 'pending') {
+  if (status === TransactionStatus.pending) {
     return <Spinner color={color} size={11} style={{ marginTop: -1, paddingRight: 2 }} />;
   }
 
@@ -261,7 +262,8 @@ export const ActivityIcon = ({
     const inAsset = transaction?.changes?.find(a => a?.direction === 'in')?.asset;
     const outAsset = transaction?.changes?.find(a => a?.direction === 'out')?.asset;
 
-    if (!!inAsset?.icon_url && !!outAsset?.icon_url) return <TwoCoinsIcon over={inAsset} under={outAsset} badge={badge} />;
+    if (!!inAsset?.icon_url && !!outAsset?.icon_url)
+      return <TwoCoinsIcon over={inAsset} under={outAsset} badge={badge && transaction.chainId !== ChainId.mainnet} />;
   }
   if (transaction?.contract?.iconUrl) {
     return (
@@ -294,7 +296,7 @@ export const ActivityIcon = ({
             }}
           />
         </View>
-        {transaction.chainId !== ChainId.mainnet && <ChainBadge chainId={transaction.chainId} badgeYPosition={0} />}
+        <ChainImage chainId={transaction.chainId} showBadge={badge && transaction.chainId !== ChainId.mainnet} />
       </View>
     );
   }
@@ -367,7 +369,7 @@ export const ActivityIcon = ({
             </Box>
           )}
         </View>
-        {transaction.chainId !== ChainId.mainnet && <ChainBadge chainId={transaction.chainId} badgeYPosition={0} />}
+        <ChainImage badgeXPosition={-10} chainId={transaction.chainId} showBadge={badge && transaction.chainId !== ChainId.mainnet} />
       </View>
     );
   }
@@ -375,12 +377,10 @@ export const ActivityIcon = ({
   return (
     <View style={sx.iconContainer}>
       <RainbowCoinIcon
-        size={40}
         icon={transaction?.asset?.icon_url}
         chainId={transaction?.asset?.chainId || ChainId.mainnet}
         symbol={transaction?.asset?.symbol || ''}
-        theme={theme}
-        colors={transaction?.asset?.colors}
+        color={transaction?.asset?.colors?.primary || transaction?.asset?.colors?.fallback || undefined}
       />
     </View>
   );
@@ -410,7 +410,7 @@ export default React.memo(function TransactionCoinRow({
     <ButtonPressAnimation onPress={onPress} scaleTo={0.96} uniqueId={`${item.hash}-${item.chainId}`}>
       <View style={sx.wholeRow} testID={`${item.title}-${item.description}-${item.balance?.display}`}>
         <View style={sx.icon}>
-          <ActivityIcon size={40} transaction={item} theme={theme} />
+          <ActivityIcon transaction={item} theme={theme} />
         </View>
 
         <View style={sx.column}>

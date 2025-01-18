@@ -13,7 +13,7 @@ import ImgixImage from '../../components/images/ImgixImage';
 import { SlackSheet } from '../../components/sheet';
 import { CardSize } from '../../components/unique-token/CardSize';
 import { WrappedAlert as Alert } from '@/helpers/alert';
-import { Box, ColorModeProvider, Column, Columns, Inline, Inset, Separator, Stack, Text } from '@/design-system';
+import { Bleed, Box, ColorModeProvider, Column, Columns, Inline, Inset, Separator, Stack, Text } from '@/design-system';
 import { useAccountProfile, useAccountSettings, useDimensions, useENSAvatar, useGas, usePersistentAspectRatio } from '@/hooks';
 import { useNavigation } from '@/navigation';
 import styled from '@/styled-thing';
@@ -26,17 +26,16 @@ import { ButtonPressAnimation } from '@/components/animations';
 import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { ReservoirCollection } from '@/graphql/__generated__/arcDev';
 import { format } from 'date-fns';
-import { NewTransaction } from '@/entities';
+import { NewTransaction, TransactionStatus } from '@/entities';
 import * as i18n from '@/languages';
 import { analyticsV2 } from '@/analytics';
 import { event } from '@/analytics/event';
 import { ETH_ADDRESS, ETH_SYMBOL } from '@/references';
-import { getNetworkObject } from '@/networks';
 import { fetchReverseRecord } from '@/handlers/ens';
 import { ContactAvatar } from '@/components/contacts';
 import { addressHashedColorIndex } from '@/utils/profileUtils';
 import { loadPrivateKey } from '@/model/wallet';
-import { ChainBadge } from '@/components/coin-icon';
+import { ChainImage } from '@/components/coin-icon/ChainImage';
 import {
   add,
   convertAmountToBalanceDisplay,
@@ -50,13 +49,13 @@ import { RainbowError, logger } from '@/logger';
 import { QuantityButton } from './components/QuantityButton';
 import { getRainbowFeeAddress } from '@/resources/reservoir/utils';
 import { IS_ANDROID, IS_IOS } from '@/env';
-import { EthCoinIcon } from '@/components/coin-icon/EthCoinIcon';
 import { addNewTransaction } from '@/state/pendingTransactions';
 import { getUniqueId } from '@/utils/ethereumUtils';
 import { getNextNonce } from '@/state/nonces';
 import { metadataPOSTClient } from '@/graphql';
 import { Transaction } from '@/graphql/__generated__/metadataPOST';
-import { ChainId } from '@/networks/types';
+import { ChainId } from '@/state/backendNetworks/types';
+import { useBackendNetworksStore } from '@/state/backendNetworks/backendNetworks';
 
 const NFT_IMAGE_HEIGHT = 250;
 // inset * 2 -> 28 *2
@@ -159,19 +158,24 @@ const MintSheet = () => {
   // if there is no max mint info, we fallback to 1 to be safe
   const maxMintsPerWallet = Number(mintCollection.publicMintInfo?.maxMintsPerWallet);
 
+  const decimals =
+    typeof mintCollection.publicMintInfo?.price?.currency?.decimals === 'number'
+      ? mintCollection.publicMintInfo?.price?.currency?.decimals
+      : 18;
+
   const price = convertRawAmountToBalance(mintCollection.publicMintInfo?.price?.amount?.raw || pricePerMint || '0', {
-    decimals: mintCollection.publicMintInfo?.price?.currency?.decimals || 18,
+    decimals,
     symbol: mintCollection.publicMintInfo?.price?.currency?.symbol || 'ETH',
   });
 
   // case where mint isnt eth? prob not with our current entrypoints
   const mintPriceAmount = multiply(price.amount, quantity);
   const mintPriceDisplay = convertAmountToBalanceDisplay(multiply(price.amount, quantity), {
-    decimals: mintCollection.publicMintInfo?.price?.currency?.decimals || 18,
+    decimals,
     symbol: mintCollection.publicMintInfo?.price?.currency?.symbol || 'ETH',
   });
 
-  const priceOfEth = ethereumUtils.getEthPriceUnit() as number;
+  const priceOfEth = ethereumUtils.getPriceOfNativeAssetForNetwork({ chainId: ChainId.mainnet });
 
   const nativeMintPriceDisplay = convertAmountToNativeDisplay(parseFloat(multiply(price.amount, quantity)) * priceOfEth, nativeCurrency);
 
@@ -247,17 +251,17 @@ const MintSheet = () => {
   // estimate gas limit
   useEffect(() => {
     const estimateMintGas = async () => {
-      const networkObj = getNetworkObject({ chainId });
+      const defaultChains = useBackendNetworksStore.getState().getDefaultChains();
       const signer = createWalletClient({
         account: accountAddress,
-        chain: networkObj,
-        transport: http(networkObj.rpc()),
+        chain: defaultChains[chainId],
+        transport: http(useBackendNetworksStore.getState().getChainDefaultRpc(chainId)),
       });
       try {
         await getClient()?.actions.mintToken({
           items: [{ collection: mintCollection.id!, quantity }],
           wallet: signer!,
-          chainId: networkObj.id,
+          chainId,
           precheck: true,
           onProgress: async (steps: Execute['steps']) => {
             const txs: Transaction[] = [];
@@ -280,7 +284,7 @@ const MintSheet = () => {
             const txSimEstimate = parseInt(
               (
                 await metadataPOSTClient.simulateTransactions({
-                  chainId: networkObj.id,
+                  chainId,
                   transactions: txs,
                 })
               )?.simulateTransactions?.[0]?.gas?.estimate ?? '0x0',
@@ -356,11 +360,11 @@ const MintSheet = () => {
     const privateKey = await loadPrivateKey(accountAddress, false);
     // @ts-ignore
     const account = privateKeyToAccount(privateKey);
-    const networkObj = getNetworkObject({ chainId });
+    const chain = useBackendNetworksStore.getState().getDefaultChains()[chainId];
     const signer = createWalletClient({
       account,
-      chain: networkObj,
-      transport: http(networkObj.rpc()),
+      chain,
+      transport: http(useBackendNetworksStore.getState().getChainDefaultRpc(chainId)),
     });
 
     const feeAddress = getRainbowFeeAddress(chainId);
@@ -375,8 +379,9 @@ const MintSheet = () => {
           },
         ],
         wallet: signer!,
-        chainId: networkObj.id,
+        chainId,
         onProgress: (steps: Execute['steps']) => {
+          const chainsName = useBackendNetworksStore.getState().getChainsName();
           steps.forEach(step => {
             if (step.error) {
               logger.error(new RainbowError(`[MintSheet]: Error minting NFT: ${step.error}`));
@@ -390,7 +395,7 @@ const MintSheet = () => {
                   type: 'nft',
                   icon_url: imageUrl,
                   address: mintCollection.id || '',
-                  network: ethereumUtils.getNetworkFromChainId(chainId),
+                  network: chainsName[chainId],
                   name: mintCollection.name || '',
                   decimals: 18,
                   symbol: 'NFT',
@@ -400,7 +405,7 @@ const MintSheet = () => {
                 const paymentAsset = {
                   type: 'nft',
                   address: ETH_ADDRESS,
-                  network: ethereumUtils.getNetworkFromChainId(chainId),
+                  network: chainsName[chainId],
                   name: mintCollection.publicMintInfo?.price?.currency?.name || 'Ethereum',
                   decimals: mintCollection.publicMintInfo?.price?.currency?.decimals || 18,
                   symbol: ETH_SYMBOL,
@@ -409,11 +414,11 @@ const MintSheet = () => {
 
                 const tx: NewTransaction = {
                   chainId,
-                  status: 'pending',
+                  status: TransactionStatus.pending,
                   to: item.data?.to,
                   from: item.data?.from,
                   hash: item.txHashes[0].txHash,
-                  network: ethereumUtils.getNetworkFromChainId(chainId),
+                  network: chainsName[chainId],
                   nonce,
                   changes: [
                     {
@@ -627,7 +632,6 @@ const MintSheet = () => {
                   />
 
                   <Box width={{ custom: deviceWidth - INSET_OFFSET }}>
-                    {/* @ts-ignore */}
                     <GasSpeedButton
                       fallbackColor={imageColor}
                       marginTop={0}
@@ -697,18 +701,15 @@ const MintSheet = () => {
                   symbol="􀤆"
                   label={i18n.t(i18n.l.minting.network)}
                   value={
-                    <Inset vertical={{ custom: -4 }}>
-                      <Inline space="4px" alignVertical="center" alignHorizontal="right">
-                        {chainId === ChainId.mainnet ? (
-                          <EthCoinIcon size={16} />
-                        ) : (
-                          <ChainBadge chainId={chainId} position="relative" size="small" forceDark={true} />
-                        )}
+                    <Bleed vertical="4px">
+                      <Inline alignHorizontal="right" alignVertical="center" space="6px">
+                        <ChainImage chainId={chainId} position="relative" size={16} />
+
                         <Text color="labelSecondary" align="right" size="17pt" weight="medium">
-                          {`${getNetworkObject({ chainId }).name}`}
+                          {`${useBackendNetworksStore.getState().getDefaultChains()[chainId].name}`}
                         </Text>
                       </Inline>
-                    </Inset>
+                    </Bleed>
                   }
                 />
               </Stack>

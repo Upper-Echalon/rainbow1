@@ -12,26 +12,25 @@ import { settingsLoadNetwork, settingsUpdateAccountAddress } from '../redux/sett
 import { walletsLoadState } from '../redux/wallets';
 import useAccountSettings from './useAccountSettings';
 import useHideSplashScreen from './useHideSplashScreen';
-import useInitializeAccountData from './useInitializeAccountData';
 import useLoadAccountData from './useLoadAccountData';
 import useLoadGlobalEarlyData from './useLoadGlobalEarlyData';
 import useOpenSmallBalances from './useOpenSmallBalances';
-import useResetAccountState from './useResetAccountState';
 import { WrappedAlert as Alert } from '@/helpers/alert';
-import { PROFILES, useExperimentalFlag } from '@/config';
 import { runKeychainIntegrityChecks } from '@/handlers/walletReadyEvents';
 import { RainbowError, logger } from '@/logger';
+import { getOrCreateDeviceId, getWalletContext } from '@/analytics/utils';
+import * as Sentry from '@sentry/react-native';
+import { analyticsV2 } from '@/analytics';
+import { Address } from 'viem';
 
 export default function useInitializeWallet() {
   const dispatch = useDispatch();
-  const resetAccountState = useResetAccountState();
+
   const loadAccountData = useLoadAccountData();
   const loadGlobalEarlyData = useLoadGlobalEarlyData();
-  const initializeAccountData = useInitializeAccountData();
   const { network } = useAccountSettings();
   const hideSplashScreen = useHideSplashScreen();
   const { setIsSmallBalancesOpen } = useOpenSmallBalances();
-  const profilesEnabled = useExperimentalFlag(PROFILES);
 
   const getWalletStatusForPerformanceMetrics = (isNew: boolean, isImporting: boolean): string => {
     if (isNew) {
@@ -61,15 +60,13 @@ export default function useInitializeWallet() {
       try {
         PerformanceTracking.startMeasuring(PerformanceMetrics.useInitializeWallet);
         logger.debug('[useInitializeWallet]: Start wallet setup');
-        await resetAccountState();
-        logger.debug('[useInitializeWallet]: resetAccountState ran ok');
 
         const isImporting = !!seedPhrase;
         logger.debug(`[useInitializeWallet]: isImporting? ${isImporting}`);
 
         if (shouldRunMigrations && !seedPhrase) {
           logger.debug('[useInitializeWallet]: shouldRunMigrations && !seedPhrase? => true');
-          await dispatch(walletsLoadState(profilesEnabled));
+          await dispatch(walletsLoadState());
           logger.debug('[useInitializeWallet]: walletsLoadState call #1');
           await runMigrations();
           logger.debug('[useInitializeWallet]: done with migrations');
@@ -87,6 +84,22 @@ export default function useInitializeWallet() {
           walletAddress,
         });
 
+        // Capture wallet context in telemetry
+        // walletType maybe undefied after initial wallet creation
+        const { walletType, walletAddressHash } = await getWalletContext(walletAddress as Address);
+        const [deviceId] = await getOrCreateDeviceId();
+
+        Sentry.setUser({
+          id: deviceId,
+          walletAddressHash,
+          walletType,
+        });
+
+        // Allows calling telemetry before currentAddress is available (i.e. onboarding)
+        if (walletType || walletAddressHash) analyticsV2.setWalletContext({ walletAddressHash, walletType });
+        analyticsV2.setDeviceId(deviceId);
+        analyticsV2.identify();
+
         if (!switching) {
           // Run keychain integrity checks right after walletInit
           // Except when switching wallets!
@@ -95,7 +108,7 @@ export default function useInitializeWallet() {
 
         if (seedPhrase || isNew) {
           logger.debug('[useInitializeWallet]: walletsLoadState call #2');
-          await dispatch(walletsLoadState(profilesEnabled));
+          await dispatch(walletsLoadState());
         }
 
         if (isNil(walletAddress)) {
@@ -133,8 +146,6 @@ export default function useInitializeWallet() {
           });
         }
 
-        initializeAccountData();
-
         dispatch(appStateUpdate({ walletReady: true }));
         logger.debug('[useInitializeWallet]: 💰 Wallet initialized');
 
@@ -167,17 +178,7 @@ export default function useInitializeWallet() {
         return null;
       }
     },
-    [
-      dispatch,
-      hideSplashScreen,
-      initializeAccountData,
-      loadAccountData,
-      loadGlobalEarlyData,
-      network,
-      profilesEnabled,
-      resetAccountState,
-      setIsSmallBalancesOpen,
-    ]
+    [dispatch, hideSplashScreen, loadAccountData, loadGlobalEarlyData, network, setIsSmallBalancesOpen]
   );
 
   return initializeWallet;
